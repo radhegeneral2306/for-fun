@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Timeline Dashboard</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<!-- Phosphor Icons (regular weight, used consistently everywhere) -->
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="toolbar app-header">
+  <div class="header-left">
+    <i class="ph ph-compass logo-icon" aria-hidden="true"></i>
+    <span class="logo">Timeline</span>
+  </div>
+  <div class="header-status" id="status-summary">
+    <span class="status-text">Loading status…</span>
+  </div>
+  <div class="header-right">
+    <button id="refresh-btn" class="btn btn-primary">
+      <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+      <span>Refresh Data</span>
+    </button>
+  </div>
+</header>
+
+<div id="empty-state-banner" class="empty-banner hidden">
+  <i class="ph ph-map-pin-line" aria-hidden="true"></i>
+  <span>No data found — drop your exported Google Timeline JSON into <code>data/raw/</code> and click Refresh.</span>
+</div>
+
+<nav class="toolbar tabs">
+  <button class="tab-btn active" data-tab="map"><i class="ph ph-map-trifold" aria-hidden="true"></i><span>Map</span></button>
+  <button class="tab-btn" data-tab="stats"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i><span>Stats</span></button>
+  <button class="tab-btn" data-tab="timeline"><i class="ph ph-calendar-blank" aria-hidden="true"></i><span>Timeline</span></button>
+  <button class="tab-btn" data-tab="insights"><i class="ph ph-sparkle" aria-hidden="true"></i><span>Insights</span></button>
+</nav>
+
+<main class="tab-panels">
+
+  <!-- MAP TAB -->
+  <section id="tab-map" class="tab-panel active">
+    <div class="panel-toolbar">
+      <div class="filter-group chip-group">
+        <label class="chip-field">From <input type="date" id="map-start"></label>
+        <label class="chip-field">To <input type="date" id="map-end"></label>
+        <button id="map-apply-filter" class="btn btn-secondary btn-pill">Apply</button>
+        <button id="map-clear-filter" class="btn btn-ghost btn-pill">Clear</button>
+      </div>
+      <div class="filter-group">
+        <button id="map-toggle-view" class="btn btn-secondary btn-pill">
+          <i class="ph ph-map-pin" aria-hidden="true"></i>
+          <span>Show Markers</span>
+        </button>
+      </div>
+    </div>
+    <div id="map-status" class="panel-status"></div>
+    <div id="map-container" class="map-container card"></div>
+  </section>
+
+  <!-- STATS TAB -->
+  <section id="tab-stats" class="tab-panel">
+    <div id="stats-status" class="panel-status"></div>
+    <div class="bento-grid" id="stats-cards"></div>
+    <div class="stats-grid">
+      <div class="card chart-card">
+        <h3><i class="ph ph-chart-donut" aria-hidden="true"></i> Time by Category</h3>
+        <div class="chart-wrap"><canvas id="category-chart"></canvas></div>
+      </div>
+      <div class="card">
+        <h3><i class="ph ph-city" aria-hidden="true"></i> Top Cities</h3>
+        <div id="top-cities-list" class="ranked-list stagger-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIMELINE TAB -->
+  <section id="tab-timeline" class="tab-panel">
+    <div id="timeline-status" class="panel-status"></div>
+    <div class="timeline-layout">
+      <div class="month-nav-wrap">
+        <label for="month-select">Month</label>
+        <select id="month-select"></select>
+      </div>
+      <div id="calendar-grid" class="calendar-grid card"></div>
+      <div id="day-detail" class="day-detail card stagger-list">
+        <p class="muted">Select a day on the calendar to see events.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSIGHTS TAB -->
+  <section id="tab-insights" class="tab-panel">
+    <div id="insights-status" class="panel-status"></div>
+
+    <div class="insights-grid">
+      <div class="card">
+        <h3><i class="ph ph-trophy" aria-hidden="true"></i> Top Places</h3>
+        <div id="top-places-table" class="stagger-list"></div>
+      </div>
+      <div class="card chart-card">
+        <h3><i class="ph ph-car" aria-hidden="true"></i> Transport Modes</h3>
+        <div class="chart-wrap"><canvas id="transport-chart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card year-review-card">
+      <div class="year-review-header">
+        <h3><i class="ph ph-confetti" aria-hidden="true"></i> Year in Review</h3>
+        <select id="year-select"></select>
+      </div>
+      <div id="year-review-content"></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="js/app.js"></script>
+<script src="js/map.js"></script>
+<script src="js/stats.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/insights.js"></script>
+</body>
+</html>
