@@ -396,8 +396,25 @@ p { margin: 0 0 .5em 0; }
   background: var(--surface-alt);
 }
 
-.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--text); }
-.leaflet-popup-content { font-size: 13px; line-height: 1.5; font-family: inherit; }
+/* MapLibre wraps the popup background and its content in a single class,
+   unlike Leaflet's wrapper/content split. */
+.maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  border-radius: var(--radius-control);
+}
+/* The tip is a CSS triangle; which border edge is painted depends on the
+   popup anchor, so tint all four. */
+.maplibregl-popup-tip {
+  border-top-color: var(--surface);
+  border-bottom-color: var(--surface);
+  border-left-color: var(--surface);
+  border-right-color: var(--surface);
+}
+.maplibregl-popup-close-button { color: var(--text-muted); font-size: 16px; }
 .popup-category {
   display: inline-block;
   padding: 1px 8px;
@@ -616,8 +633,17 @@ table.data-table tbody tr:hover { background: var(--surface-alt); }
   to { transform: rotate(360deg); }
 }
 
-/* ---------- Leaflet control override ---------- */
-.leaflet-container { font-family: inherit; background: var(--surface-alt); }
+/* ---------- MapLibre control override ---------- */
+.maplibregl-map { font-family: inherit; background: var(--surface-alt); }
+/* OpenFreeMap's terms require the attribution control to stay visible — this
+   only restyles it to sit less harshly on the app's frosted-glass surfaces. */
+.maplibregl-ctrl-attrib {
+  font-family: inherit;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--text-muted);
+}
+.maplibregl-ctrl-attrib a { color: var(--text-muted); }
 
 /* ---------- Skeleton loaders ---------- */
 .skeleton {
