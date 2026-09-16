@@ -1172,8 +1172,16 @@ window.Local = (function () {
     return `${lat.toFixed(4)},${lng.toFixed(4)}`;
   }
 
+  // Coarser (~1.1km) key used only for the geocoding cache/fetch-dedup, so
+  // nearby visits within the same town share one Nominatim lookup instead of
+  // each needing their own — never used for "distinct places" counting,
+  // which must stay on the finer roundKey() above.
+  function geocodeKey(lat, lng) {
+    return `${lat.toFixed(2)},${lng.toFixed(2)}`;
+  }
+
   function getPlaceName(lat, lng) {
-    return geocodeCache.get(roundKey(lat, lng)) || "Unknown place";
+    return geocodeCache.get(geocodeKey(lat, lng)) || "Unknown place";
   }
 
   function dateOf(iso) {
@@ -1520,9 +1528,17 @@ window.Local = (function () {
   }
 
   function geocodeStatus() {
-    const distinct = new Set(visits.map((v) => roundKey(v.lat, v.lng)));
+    // total_places stays on the finer roundKey() (accurate distinct-place
+    // count); "geocoded" checks each such place's coarser geocodeKey(), since
+    // that's the granularity the cache is actually keyed at.
+    const distinct = new Set();
     let geocoded = 0;
-    distinct.forEach((k) => { if (geocodeCache.has(k)) geocoded++; });
+    visits.forEach((v) => {
+      const rk = roundKey(v.lat, v.lng);
+      if (distinct.has(rk)) return;
+      distinct.add(rk);
+      if (geocodeCache.has(geocodeKey(v.lat, v.lng))) geocoded++;
+    });
     return { online_enabled: true, total_places: distinct.size, geocoded, pending: Math.max(distinct.size - geocoded, 0) };
   }
 
@@ -1531,7 +1547,7 @@ window.Local = (function () {
     const seen = new Set();
     const coords = [];
     visits.forEach((v) => {
-      const key = roundKey(v.lat, v.lng);
+      const key = geocodeKey(v.lat, v.lng);
       if (geocodeCache.has(key) || seen.has(key)) return;
       seen.add(key);
       coords.push({ key, lat: v.lat, lng: v.lng });
