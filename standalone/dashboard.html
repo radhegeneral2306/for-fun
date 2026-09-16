@@ -800,6 +800,10 @@ table.data-table tbody tr:hover { background: var(--surface-alt); }
   </div>
   <div class="header-right">
     <input type="file" id="import-file-input" accept=".json,application/json" class="hidden">
+    <button id="clear-data-btn" class="btn btn-ghost hidden">
+      <i class="ph ph-trash" aria-hidden="true"></i>
+      <span>Remove Data</span>
+    </button>
     <button id="import-btn-header" class="btn btn-primary">
       <i class="ph ph-upload-simple" aria-hidden="true"></i>
       <span>Import Timeline JSON</span>
@@ -1006,7 +1010,22 @@ window.Db = (function () {
     return putAll(store, [record]);
   }
 
-  return { open, getAll, putAll, put, isAvailable: () => available };
+  async function clearAll() {
+    if (!available) return;
+    try {
+      const db = await open();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORES, "readwrite");
+        STORES.forEach((name) => tx.objectStore(name).clear());
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      console.warn("IndexedDB clear failed:", err);
+    }
+  }
+
+  return { open, getAll, putAll, put, clearAll, isAvailable: () => available };
 })();
 </script>
 
@@ -1773,9 +1792,28 @@ window.Local = (function () {
     };
   }
 
+  // Wipes every in-memory table plus the geocode cache/assignments/rep index,
+  // and the IndexedDB stores behind them, back to a fresh-install empty state.
+  // Callers still need to reset the Geocoder's own queue/counters separately —
+  // this module has no knowledge of that in-flight fetch loop.
+  async function clearData() {
+    visitsById.clear();
+    tripsById.clear();
+    pathsById.clear();
+    filesByKey.clear();
+    geocodeCache.clear();
+    assignments.clear();
+    repIndex.clear();
+    home = null;
+    work = null;
+    rebuildArrays(); // -> visits/trips/paths/files = [], dataVersion++
+    namesVersion++; // geocodeCache just emptied too
+    await Db.clearAll();
+  }
+
   return {
     parseSegments, parseFrequentPlaces, // exposed for potential reuse/testing
-    loadFromDB, importData,
+    loadFromDB, importData, clearData,
     buildStatus, heatmapPoints, visitsInRange, statsSummary,
     timelineMonths, timelineMonthDays, timelineDayEvents,
     topPlaces, transportModes, yearInReview, geocodeStatus,
@@ -1925,7 +1963,20 @@ window.Geocoder = (function () {
     else updateProgressUI();
   }
 
-  return { resume };
+  // Drops the pending queue and hides the progress pill, for "Remove Data".
+  // Doesn't touch `running`: if a lookup is already in flight it finishes on
+  // its own (nothing left in the queue afterwards, so the loop just exits) —
+  // simpler than aborting a fetch mid-request, and the one possible stale
+  // write it can leave behind is harmless (Local.clearData() has already
+  // wiped the cache it would write into by the time this is called).
+  function reset() {
+    queue = [];
+    total = 0;
+    done = 0;
+    updateProgressUI();
+  }
+
+  return { resume, reset };
 })();
 </script>
 
@@ -2164,6 +2215,7 @@ window.Geocoder = (function () {
   function renderStatus(status) {
     const statusEl = document.getElementById("status-summary");
     const emptyBanner = document.getElementById("empty-state-banner");
+    const clearBtn = document.getElementById("clear-data-btn");
     if (!statusEl) return;
 
     if (!status || !status.loaded || !status.segment_count) {
@@ -2171,11 +2223,13 @@ window.Geocoder = (function () {
       statusEl.classList.add("is-empty");
       statusEl.classList.remove("is-error");
       emptyBanner.classList.remove("hidden");
+      if (clearBtn) clearBtn.classList.add("hidden");
       return;
     }
 
     emptyBanner.classList.add("hidden");
     statusEl.classList.remove("is-empty", "is-error");
+    if (clearBtn) clearBtn.classList.remove("hidden");
 
     const count = status.segment_count.toLocaleString();
     let rangeText = "";
@@ -3402,8 +3456,26 @@ window.Geocoder = (function () {
     });
   }
 
+  async function handleClearData() {
+    const ok = window.confirm(
+      "Remove all imported Timeline data from this device?\n\nThis deletes every visit, trip, and resolved place name stored here. It cannot be undone — you'll need to re-import a file (and place names will need to resolve again)."
+    );
+    if (!ok) return;
+    Geocoder.reset(); // stop the fetch loop / hide its progress pill first
+    await Local.clearData();
+    await App.refreshStatus(); // updates header text + shows the empty-state banner
+    refreshAllTabs(); // every tab re-renders against the now-empty data
+    App.showToast("Imported data removed. Import a file to start again.");
+  }
+
+  function wireClearButton() {
+    const btn = document.getElementById("clear-data-btn");
+    if (btn) btn.addEventListener("click", handleClearData);
+  }
+
   async function boot() {
     wireImportButtons();
+    wireClearButton();
     try {
       await Db.open();
     } catch (err) {
