@@ -1151,7 +1151,14 @@ window.Local = (function () {
   let geocodeCache = new Map(); // "lat,lng" (4dp) -> place name
   let visits = [], trips = [], paths = [], files = [];
   let home = null, work = null;
+  // Two independent counters, deliberately not one. `dataVersion` moves only
+  // when the underlying visit/trip/path rows change (an import); `namesVersion`
+  // moves every time reverse geocoding resolves one more place NAME. Geometry
+  // is unaffected by geocoding, so the expensive consumers (the map's
+  // 170k-point heatmap / 12k-marker GeoJSON sources) can watch `dataVersion`
+  // alone and skip ~2,000 pointless full rebuilds during a geocoding run.
   let dataVersion = 0;
+  let namesVersion = 0;
 
   function rebuildArrays() {
     visits = Array.from(visitsById.values());
@@ -1534,7 +1541,8 @@ window.Local = (function () {
 
   function setGeocodedName(key, name) {
     geocodeCache.set(key, name);
-    dataVersion++;
+    // Names only — geometry is untouched, so dataVersion deliberately stays put.
+    namesVersion++;
   }
 
   return {
@@ -1543,8 +1551,9 @@ window.Local = (function () {
     buildStatus, heatmapPoints, visitsInRange, statsSummary,
     timelineMonths, timelineMonthDays, timelineDayEvents,
     topPlaces, transportModes, yearInReview, geocodeStatus,
-    getUngeocodedVisitCoords, setGeocodedName,
+    getUngeocodedVisitCoords, setGeocodedName, getPlaceName,
     getDataVersion: () => dataVersion,
+    getNamesVersion: () => namesVersion,
   };
 })();
 </script>
@@ -1941,7 +1950,17 @@ window.Geocoder = (function () {
     const count = status.segment_count.toLocaleString();
     let rangeText = "";
     if (status.date_range && status.date_range.start && status.date_range.end) {
-      rangeText = ` · ${App.fmtDateShort(status.date_range.start)} – ${App.fmtDate(status.date_range.end)}`;
+      // Drop the year from the start date only when both ends of the range fall
+      // in the same calendar year ("Jun 18 – Sep 16, 2026"). For a multi-year
+      // export both years have to be shown ("Dec 4, 2022 – Sep 16, 2026"),
+      // otherwise a decade of history reads as a few months.
+      const startYear = new Date(status.date_range.start).getFullYear();
+      const endYear = new Date(status.date_range.end).getFullYear();
+      const sameYear = isFinite(startYear) && isFinite(endYear) && startYear === endYear;
+      const startText = sameYear
+        ? App.fmtDateShort(status.date_range.start)
+        : App.fmtDate(status.date_range.start);
+      rangeText = ` · ${startText} – ${App.fmtDate(status.date_range.end)}`;
     }
     statusEl.textContent = `${count} segments loaded${rangeText}`;
   }
@@ -1967,6 +1986,9 @@ window.Geocoder = (function () {
 
   App.getLastStatus = () => lastStatus;
   App.refreshStatus = fetchStatus;
+  // Which tab is on screen. Background refreshes use this to avoid re-rendering
+  // three tabs nobody is looking at (see refreshAllTabs in the boot script).
+  App.getCurrentTab = () => currentTab;
 
   function init() {
     document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -2009,9 +2031,32 @@ window.Geocoder = (function () {
   let layersReady = false; // sources/layers exist on the currently loaded style
   let view = "heatmap"; // 'heatmap' | 'markers'
   let loaded = false;
+  let contextLost = false;
+  let recovering = false;
 
   let lastHeatmapPoints = [];
   let lastVisits = [];
+
+  // --- "has anything actually changed?" bookkeeping ---------------------------
+  // On a 4-year export the heatmap source holds ~170k features and the marker
+  // source ~12k, and building + uploading them costs hundreds of MB of
+  // short-lived allocations in the page AND in MapLibre's GeoJSON worker.
+  // Reverse geocoding calls __refreshAllTabs() every ~3s for as long as the
+  // queue takes to drain (~2,000 places ≈ 35 minutes ≈ 700 refreshes), but it
+  // only ever changes place NAMES — never a coordinate. Doing that rebuild
+  // anyway is what pushed the renderer past its memory ceiling ("Aw, Snap!
+  // Out of Memory") and, short of that, left the GL context dead and the
+  // canvas black. So:
+  //   * `loadedKey` records which dataset (data version + active filter) is
+  //     currently in lastHeatmapPoints/lastVisits — an unchanged key means
+  //     load() has nothing to fetch or rebuild.
+  //   * `dataToken` is bumped only when those arrays are genuinely replaced;
+  //     renderCurrentView() uploads to a GeoJSON source only when the token it
+  //     last applied differs, so repaints (view toggles, style reloads) are free.
+  let loadedKey = null;
+  let dataToken = 0;
+  let heatAppliedToken = -1;
+  let markersAppliedToken = -1;
 
   // Re-fit the viewport to the data only when the visible dataset genuinely
   // changed (first load of the session, filter applied, filter cleared).
@@ -2183,9 +2228,35 @@ window.Geocoder = (function () {
     // "map snaps back to the fitted view" bug that fitOnNextLoad exists to fix.
     map.on("style.load", () => {
       layersReady = false;
+      // A style load throws the old sources away, so whatever was uploaded to
+      // them is gone too — forget the applied tokens or renderCurrentView()
+      // would "helpfully" skip re-uploading into the brand-new empty sources.
+      heatAppliedToken = -1;
+      markersAppliedToken = -1;
       addHeatmapAndMarkerSourcesAndLayers();
       renderCurrentView();
     });
+
+    // MapLibre does not recover from a lost GL context on its own: the canvas
+    // just stays black forever, which is exactly how the memory pressure from
+    // a large export used to present. Say what happened and rebuild the map.
+    const canvas = map.getCanvas();
+    canvas.addEventListener(
+      "webglcontextlost",
+      (e) => {
+        e.preventDefault(); // required, or the browser will never restore the context
+        contextLost = true;
+        App.setPanelStatus("map-status", "The map lost its graphics context — rebuilding…", true);
+        // Rebuild as soon as the browser hands the context back, or after a
+        // short grace period if it never fires `webglcontextrestored` (some
+        // drivers don't).
+        setTimeout(() => {
+          if (contextLost) recoverFromContextLoss();
+        }, 2000);
+      },
+      false
+    );
+    canvas.addEventListener("webglcontextrestored", () => recoverFromContextLoss(), false);
 
     // Delegated listeners live on the map, not on the style, so they survive
     // setStyle() and only need registering once. MapLibre v4 skips layers that
@@ -2213,22 +2284,60 @@ window.Geocoder = (function () {
     return map;
   }
 
-  function onMarkerClick(e) {
-    const feature = e.features && e.features[0];
-    if (!feature) return;
-    const props = feature.properties || {};
-    const name = App.escapeHtml(props.place_name || "Unknown place");
+  // The marker source is not rebuilt while reverse geocoding runs, so the
+  // `place_name` baked into a feature can be older than the geocode cache.
+  // Resolve it live at popup time instead — that is the *only* thing place
+  // names are needed for on this tab, and it costs one Map lookup.
+  function livePlaceName(props, coords) {
+    if (coords && window.Local && typeof Local.getPlaceName === "function") {
+      const name = Local.getPlaceName(coords[1], coords[0]); // coords are [lng, lat]
+      if (name && name !== "Unknown place") return name;
+    }
+    return props.place_name || "Unknown place";
+  }
+
+  // What the currently-open popup is describing, so it can be re-rendered in
+  // place when its place name finally resolves.
+  let openPopupCtx = null;
+
+  function renderPopup(ctx) {
+    const props = ctx.props || {};
+    const name = App.escapeHtml(livePlaceName(props, ctx.coords));
     const cat = App.escapeHtml(props.category || "other");
     const dur = App.fmtMinutes(props.duration_minutes);
     const when = props.start_time ? App.fmtDate(props.start_time) : "";
     popup
-      .setLngLat(e.lngLat)
+      .setLngLat(ctx.lngLat)
       .setHTML(
         `<strong>${name}</strong><br>` +
           `<span class="popup-category ${cat}">${cat}</span><br>` +
           `<span>${when} · ${dur}</span>`
       )
       .addTo(map);
+  }
+
+  function onMarkerClick(e) {
+    const feature = e.features && e.features[0];
+    if (!feature) return;
+    openPopupCtx = {
+      lngLat: e.lngLat,
+      coords: feature.geometry && feature.geometry.coordinates,
+      props: feature.properties || {},
+    };
+    renderPopup(openPopupCtx);
+  }
+
+  // Last geocode-cache version whose names are already on screen.
+  let namesAppliedVersion = -1;
+
+  /** Cheap counterpart to load(): the only part of this tab that geocoding can
+   *  change is the text inside an open popup. */
+  function refreshPlaceNames() {
+    const version =
+      window.Local && typeof Local.getNamesVersion === "function" ? Local.getNamesVersion() : null;
+    if (version !== null && version === namesAppliedVersion) return;
+    namesAppliedVersion = version;
+    if (popup && popup.isOpen() && openPopupCtx) renderPopup(openPopupCtx);
   }
 
   // `points` are raw [lat, lng, ...] tuples straight from the API.
@@ -2249,10 +2358,25 @@ window.Geocoder = (function () {
 
   function renderCurrentView() {
     if (!map || !layersReady) return;
-    const heatSrc = map.getSource(HEATMAP_SOURCE);
-    const markerSrc = map.getSource(MARKERS_SOURCE);
-    if (heatSrc) heatSrc.setData(heatmapGeoJSON(lastHeatmapPoints));
-    if (markerSrc) markerSrc.setData(visitsGeoJSON(lastVisits));
+    // Upload to each source only when the data behind it has actually changed
+    // since the last upload. setData() on a 170k-feature collection means
+    // building the whole FeatureCollection here and structured-cloning it into
+    // the GeoJSON worker; doing it on every repaint is what made a long
+    // geocoding run exhaust the renderer.
+    if (heatAppliedToken !== dataToken) {
+      const heatSrc = map.getSource(HEATMAP_SOURCE);
+      if (heatSrc) {
+        heatSrc.setData(heatmapGeoJSON(lastHeatmapPoints));
+        heatAppliedToken = dataToken;
+      }
+    }
+    if (markersAppliedToken !== dataToken) {
+      const markerSrc = map.getSource(MARKERS_SOURCE);
+      if (markerSrc) {
+        markerSrc.setData(visitsGeoJSON(lastVisits));
+        markersAppliedToken = dataToken;
+      }
+    }
     // Toggle visibility rather than adding/removing layers — cheaper, and it
     // keeps the sources alive across view switches.
     setLayerVisibility(HEATMAP_LAYER, view === "heatmap");
@@ -2267,12 +2391,63 @@ window.Geocoder = (function () {
     renderCurrentView();
   }
 
-  async function load() {
+  /** Rebuild the map from scratch after the GL context died, keeping the view. */
+  function recoverFromContextLoss() {
+    if (recovering || !map) return;
+    recovering = true;
+    let center = null;
+    let zoom = null;
+    try {
+      center = map.getCenter();
+      zoom = map.getZoom();
+    } catch (err) { /* the dead map can't report its camera; fall back to a fit */ }
+    try {
+      map.remove();
+    } catch (err) { /* already torn down */ }
+    map = null;
+    popup = null;
+    openPopupCtx = null;
+    layersReady = false;
+    loaded = false;
+    loadedKey = null;
+    dataToken++; // the rebuilt sources start empty, so force a fresh upload
+    heatAppliedToken = -1;
+    markersAppliedToken = -1;
+    contextLost = false;
+    setTimeout(() => {
+      recovering = false;
+      if (!ensureMap()) return; // ensureMap() explains itself if WebGL is gone
+      if (center && typeof zoom === "number") map.jumpTo({ center, zoom });
+      load({ force: true });
+    }, 300);
+  }
+
+  /** The dataset currently rendered: data version + active filter. */
+  function currentDataKey(filters) {
+    const version =
+      window.Local && typeof Local.getDataVersion === "function" ? Local.getDataVersion() : null;
+    if (version === null) return null; // no version source (desktop build) — always reload
+    return `${version}|${filters.start || ""}|${filters.end || ""}`;
+  }
+
+  async function load(opts) {
+    opts = opts || {};
     // Without a map (no WebGL) ensureMap() has already set an explanatory
     // status — don't overwrite it with a loading message.
     if (!ensureMap()) return;
-    App.setPanelStatus("map-status", "Loading map data…");
     const filters = getFilters();
+
+    // Background refreshes fire every ~3s for the whole length of a geocoding
+    // run. Geocoding never moves a point, so if neither the data nor the filter
+    // changed there is nothing to fetch, nothing to rebuild and nothing to
+    // upload — only an open popup's text can be stale.
+    const key = currentDataKey(filters);
+    if (!opts.force && loaded && key !== null && key === loadedKey) {
+      refreshPlaceNames();
+      return;
+    }
+
+    App.setPanelStatus("map-status", "Loading map data…");
     try {
       const [heatRes, visitsRes] = await Promise.all([
         App.apiGet("/api/map/heatmap", { start: filters.start, end: filters.end }),
@@ -2280,6 +2455,8 @@ window.Geocoder = (function () {
       ]);
       lastHeatmapPoints = heatRes.points || [];
       lastVisits = visitsRes.visits || [];
+      dataToken++; // genuinely new geometry — renderCurrentView() must upload it
+      loadedKey = key;
 
       if (!lastHeatmapPoints.length && !lastVisits.length) {
         App.setPanelStatus("map-status", "No location data for this period.");
@@ -2306,7 +2483,8 @@ window.Geocoder = (function () {
       loaded = true;
     } catch (err) {
       // fitOnNextLoad intentionally left unchanged — a failed intentional load
-      // stays armed so the retry still fits.
+      // stays armed so the retry still fits. loadedKey is likewise left alone
+      // so the next refresh really does retry.
       App.setPanelStatus("map-status", `Error: ${err.message}`, true);
       App.showToast(`Map data failed to load: ${err.message}`, true);
     }
@@ -2316,13 +2494,13 @@ window.Geocoder = (function () {
     document.getElementById("map-toggle-view").addEventListener("click", toggleView);
     document.getElementById("map-apply-filter").addEventListener("click", () => {
       fitOnNextLoad = true; // filter changed — the visible dataset really is different
-      load();
+      load({ force: true });
     });
     document.getElementById("map-clear-filter").addEventListener("click", () => {
       document.getElementById("map-start").value = "";
       document.getElementById("map-end").value = "";
       fitOnNextLoad = true; // filter cleared — same deal
-      load();
+      load({ force: true });
     });
   }
 
@@ -2332,15 +2510,22 @@ window.Geocoder = (function () {
     // visible (the GL canvas is sized from the container's client rect).
     setTimeout(() => map && map.resize(), 0);
     if (!loaded) load();
+    else refreshPlaceNames();
   }
 
   function refresh() {
     // Deliberately does NOT arm fitOnNextLoad: background refreshes and the
-    // "Refresh Data" button both preserve the user's current pan/zoom.
+    // "Refresh Data" button both preserve the user's current pan/zoom. load()
+    // itself is a no-op when neither the data nor the filter moved.
     return load();
   }
 
-  window.Tabs.map = { init, activate, refresh };
+  /** Marks this tab stale so it reloads next time it's shown (see boot.js). */
+  function invalidate() {
+    loaded = false;
+  }
+
+  window.Tabs.map = { init, activate, refresh, invalidate };
 })();
 </script>
 
@@ -2477,7 +2662,12 @@ window.Geocoder = (function () {
     return load();
   }
 
-  window.Tabs.stats = { init, activate, refresh };
+  /** Marks this tab stale so it reloads next time it's shown (see boot.js). */
+  function invalidate() {
+    loaded = false;
+  }
+
+  window.Tabs.stats = { init, activate, refresh, invalidate };
 })();
 </script>
 
@@ -2657,7 +2847,20 @@ window.Geocoder = (function () {
     return loadMonths();
   }
 
-  window.Tabs.timeline = { init, activate, refresh, getMonths: () => months };
+  /** Marks this tab stale so it reloads next time it's shown (see boot.js).
+   *  `months` itself is left in place — the Insights year dropdown reads it. */
+  function invalidate() {
+    monthsLoaded = false;
+  }
+
+  window.Tabs.timeline = {
+    init,
+    activate,
+    refresh,
+    invalidate,
+    getMonths: () => months,
+    isLoaded: () => monthsLoaded,
+  };
 })();
 </script>
 
@@ -2820,9 +3023,17 @@ window.Geocoder = (function () {
   }
 
   async function ensureYearsAndLoad() {
-    // Make sure timeline months are available for the year dropdown.
+    // Make sure timeline months are available for the year dropdown. The
+    // Timeline tab owns that state but is only re-rendered while it is the
+    // visible tab, so its cached months can be stale (or absent) when an import
+    // lands while Insights is showing — in that case fetch them here.
+    const timelineMod = window.Tabs.timeline;
+    const timelineFresh =
+      timelineMod && typeof timelineMod.isLoaded === "function"
+        ? timelineMod.isLoaded()
+        : !!(timelineMod && timelineMod.getMonths().length);
     try {
-      if (!window.Tabs.timeline.getMonths().length) {
+      if (!timelineFresh) {
         await App.apiGet("/api/timeline/months").then((res) => {
           // Piggyback: timeline.js owns 'months' state, so just derive years locally if needed.
           window.__insightsMonthsFallback = res.months || [];
@@ -2833,8 +3044,9 @@ window.Geocoder = (function () {
     }
     const select = document.getElementById("year-select");
     let years = [];
-    const timelineMod = window.Tabs.timeline;
-    const months = (timelineMod && timelineMod.getMonths()) || window.__insightsMonthsFallback || [];
+    const months = timelineFresh
+      ? timelineMod.getMonths()
+      : window.__insightsMonthsFallback || (timelineMod && timelineMod.getMonths()) || [];
     if (months.length) {
       years = Array.from(new Set(months.map((m) => m.year))).sort((a, b) => b - a);
     } else {
@@ -2867,7 +3079,12 @@ window.Geocoder = (function () {
     return load();
   }
 
-  window.Tabs.insights = { init, activate, refresh };
+  /** Marks this tab stale so it reloads next time it's shown (see boot.js). */
+  function invalidate() {
+    loaded = false;
+  }
+
+  window.Tabs.insights = { init, activate, refresh, invalidate };
 })();
 </script>
 
@@ -2878,15 +3095,28 @@ window.Geocoder = (function () {
 (function () {
   "use strict";
 
+  // Called after an import and, far more often, every ~3 seconds for the whole
+  // length of a reverse-geocoding run (up to ~35 minutes on a multi-year
+  // export). Re-rendering all four tabs each time means four full scans of
+  // ~40,000 rows and, on the Map tab, rebuilding a 170k-feature GeoJSON — for
+  // three tabs nobody is looking at. So only the visible tab is re-rendered;
+  // the others are marked stale and re-render when they're next shown, which
+  // is the first moment their contents can matter.
   function refreshAllTabs() {
+    const active = typeof App.getCurrentTab === "function" ? App.getCurrentTab() : null;
     ["map", "stats", "timeline", "insights"].forEach((name) => {
       const mod = window.Tabs[name];
-      if (mod && typeof mod.refresh === "function") {
-        try {
-          mod.refresh();
-        } catch (err) {
-          console.error(`Error refreshing tab ${name}:`, err);
+      if (!mod) return;
+      try {
+        if (name === active) {
+          if (typeof mod.refresh === "function") mod.refresh();
+        } else if (typeof mod.invalidate === "function") {
+          mod.invalidate();
+        } else if (typeof mod.refresh === "function") {
+          mod.refresh(); // module predates invalidate() — fall back to the old behaviour
         }
+      } catch (err) {
+        console.error(`Error refreshing tab ${name}:`, err);
       }
     });
   }

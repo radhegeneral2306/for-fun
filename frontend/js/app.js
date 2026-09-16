@@ -287,7 +287,17 @@
     const count = status.segment_count.toLocaleString();
     let rangeText = "";
     if (status.date_range && status.date_range.start && status.date_range.end) {
-      rangeText = ` · ${App.fmtDateShort(status.date_range.start)} – ${App.fmtDate(status.date_range.end)}`;
+      // Drop the year from the start date only when both ends of the range fall
+      // in the same calendar year ("Jun 18 – Sep 16, 2026"). For a multi-year
+      // export both years have to be shown ("Dec 4, 2022 – Sep 16, 2026"),
+      // otherwise a decade of history reads as a few months.
+      const startYear = new Date(status.date_range.start).getFullYear();
+      const endYear = new Date(status.date_range.end).getFullYear();
+      const sameYear = isFinite(startYear) && isFinite(endYear) && startYear === endYear;
+      const startText = sameYear
+        ? App.fmtDateShort(status.date_range.start)
+        : App.fmtDate(status.date_range.start);
+      rangeText = ` · ${startText} – ${App.fmtDate(status.date_range.end)}`;
     }
     statusEl.textContent = `${count} segments loaded${rangeText}`;
   }
