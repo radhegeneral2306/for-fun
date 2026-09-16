@@ -1993,13 +1993,38 @@ window.Geocoder = (function () {
     return { start, end };
   }
 
+  let tileLayer = null;
+
+  function isDarkMode() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+
+  // Raw tile.openstreetmap.org rejects most embedded/distributed apps (no
+  // Referer from file:// pages reads as policy abuse) — CARTO's free basemaps
+  // are the standard drop-in replacement for this exact use case and don't
+  // require an API key or referrer.
+  function tileUrl(dark) {
+    return dark
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  }
+
+  function applyTileLayer() {
+    if (!map) return;
+    if (tileLayer) map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(tileUrl(isDarkMode()), {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+    }).addTo(map);
+  }
+
   function ensureMap() {
     if (map) return map;
     map = L.map("map-container", { worldCopyJump: true });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
-    }).addTo(map);
+    applyTileLayer();
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTileLayer);
+    }
     // Reasonable default view until data arrives (world view).
     map.setView([20, 0], 2);
     return map;
