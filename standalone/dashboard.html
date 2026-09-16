@@ -1,0 +1,2754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Timeline Dashboard</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<!-- Phosphor Icons (regular weight, used consistently everywhere) -->
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+
+<style>
+/* ============================================================
+   Design system — ported verbatim from frontend/css/styles.css
+   ============================================================ */
+
+/* ---------- Design tokens ---------- */
+:root {
+  --bg: #f5f5f7;
+  --bg-solid: #f5f5f7;
+  --surface: #ffffff;
+  --surface-alt: #f0f0f2;
+  --surface-2: #ececee;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.12);
+  --text: #1d1d1f;
+  --text-muted: #6e6e73;
+  --text-faint: #a1a1a6;
+  --accent: #0071e3;
+  --accent-ink: #ffffff;
+  --home: #0071e3;
+  --work: #2fb682;
+  --other: #e6a23c;
+  --danger: #e0433f;
+  --toolbar-bg: rgba(255, 255, 255, 0.72);
+  --toolbar-border: rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 2px 24px rgba(0, 0, 0, 0.06);
+  --shadow-card-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --radius-card: 12px;
+  --radius-control: 10px;
+  --radius-pill: 980px;
+  --ease-out-apple: cubic-bezier(0.16, 1, 0.3, 1);
+  --skeleton-base: #e8e8ec;
+  --skeleton-shine: #f4f4f7;
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --bg-solid: #1c1c1e;
+    --surface: #2c2c2e;
+    --surface-alt: #323234;
+    --surface-2: #3a3a3c;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --text: #f5f5f7;
+    --text-muted: #98989d;
+    --text-faint: #6e6e73;
+    --accent: #0a84ff;
+    --accent-ink: #ffffff;
+    --home: #0a84ff;
+    --work: #32d18f;
+    --other: #f0a83c;
+    --danger: #ff453a;
+    --toolbar-bg: rgba(28, 28, 30, 0.72);
+    --toolbar-border: rgba(255, 255, 255, 0.08);
+    --shadow-card: 0 2px 24px rgba(0, 0, 0, 0.28);
+    --shadow-card-lg: 0 8px 30px rgba(0, 0, 0, 0.36);
+    --skeleton-base: #323234;
+    --skeleton-shine: #3c3c3e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 960px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4 { margin: 0 0 .5em 0; font-weight: 600; letter-spacing: -0.01em; }
+h3 { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
+h3 i { color: var(--text-muted); font-size: 16px; }
+p { margin: 0 0 .5em 0; }
+.muted { color: var(--text-muted); }
+
+/* ---------- Toolbars (glass) ---------- */
+.toolbar {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .toolbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--bg-solid);
+  }
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 28px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.header-left { display: flex; align-items: center; gap: 8px; }
+.logo-icon { font-size: 20px; color: var(--accent); }
+.logo { font-size: 16px; font-weight: 700; white-space: nowrap; letter-spacing: -0.01em; }
+
+.header-status {
+  flex: 1;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.header-status.is-empty { color: var(--other); font-weight: 600; }
+.header-status.is-error { color: var(--danger); font-weight: 600; }
+
+.empty-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--other) 14%, var(--bg));
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 28px;
+  font-size: 13.5px;
+  text-align: center;
+}
+.empty-banner i { color: var(--other); font-size: 16px; flex-shrink: 0; }
+.empty-banner code {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.hidden { display: none !important; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 8px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s ease, opacity .15s ease, transform .12s var(--ease-out-apple), color .15s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { opacity: .88; }
+.btn-primary:disabled { opacity: .55; cursor: default; transform: none; }
+.btn-secondary { background: var(--surface-alt); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--surface-2); }
+.btn-secondary.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid transparent; }
+.btn-ghost:hover { color: var(--text); }
+.btn-pill { border-radius: var(--radius-pill); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:active { transform: none; }
+}
+
+/* ---------- Tabs (segmented pill control) ---------- */
+.tabs {
+  display: flex;
+  justify-content: center;
+  padding: 10px 28px;
+  position: sticky;
+  top: 52px;
+  z-index: 25;
+}
+
+.tab-btn {
+  border: none;
+  background: none;
+  font-family: inherit;
+  padding: 8px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color .2s ease, background .2s ease, transform .12s var(--ease-out-apple);
+}
+.tab-btn i { font-size: 15px; }
+.tab-btn:hover { color: var(--text); background: var(--surface-alt); }
+.tab-btn.active { color: var(--accent-ink); background: var(--accent); }
+.tab-btn.active i { color: var(--accent-ink); }
+.tab-btn:active { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-btn:active { transform: none; }
+}
+
+/* ---------- Panels ---------- */
+.tab-panels { flex: 1; padding: 24px 28px 48px; max-width: 1400px; width: 100%; margin: 0 auto; }
+
+.tab-panel {
+  display: none;
+}
+.tab-panel.active {
+  display: block;
+  opacity: 1;
+  transform: none;
+  transition: opacity .25s var(--ease-out-apple), transform .25s var(--ease-out-apple);
+}
+.tab-panel.active.entering {
+  opacity: 0;
+  transform: translateY(6px);
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-panel.active { transform: none; transition: none; }
+  .tab-panel.active.entering { opacity: 1; transform: none; }
+}
+
+.panel-status {
+  min-height: 20px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  margin-bottom: 10px;
+}
+.panel-status.is-error { color: var(--danger); }
+
+.panel-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.chip-group { flex-wrap: wrap; }
+.chip-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 14px;
+}
+.chip-field input[type="date"] {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+}
+.chip-field input[type="date"]:focus { outline: none; }
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-card);
+}
+
+/* ---------- Bento stat grid (Stats tab) ---------- */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, minmax(90px, auto));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.stat-tile.hero {
+  grid-column: 1 / 3;
+  grid-row: 1 / 3;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--accent) 12%, var(--surface)) 0%, var(--surface) 65%);
+  justify-content: space-between;
+  box-shadow: var(--shadow-card-lg);
+}
+.stat-tile.hero .stat-icon { font-size: 26px; color: var(--accent); }
+.stat-tile.hero .stat-value { font-size: 42px; }
+
+.stat-tile.tile-c { grid-column: 3; grid-row: 1; }
+.stat-tile.tile-d { grid-column: 4; grid-row: 1; }
+.stat-tile.tile-e { grid-column: 3 / 5; grid-row: 2; flex-direction: row; align-items: center; justify-content: space-between; }
+
+.stat-icon { color: var(--text-faint); font-size: 18px; margin-bottom: 8px; }
+.stat-value {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.stat-label {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+}
+
+.chart-card .chart-wrap {
+  position: relative;
+  height: 260px;
+}
+
+/* ---------- Ranked list ---------- */
+.ranked-list { display: flex; flex-direction: column; gap: 10px; }
+.ranked-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+.ranked-row .rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ranked-row .ranked-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranked-row .ranked-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+}
+.ranked-row .bar-bg {
+  flex: 1;
+  height: 6px;
+  background: var(--surface-alt);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ranked-row .bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+/* ---------- Map ---------- */
+.map-container {
+  height: 560px;
+  width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  padding: 0;
+  background: var(--surface-alt);
+}
+
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--text); }
+.leaflet-popup-content { font-size: 13px; line-height: 1.5; font-family: inherit; }
+.popup-category {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  margin-top: 4px;
+  text-transform: capitalize;
+}
+.popup-category.home { background: var(--home); }
+.popup-category.work { background: var(--work); }
+.popup-category.other { background: var(--other); }
+
+/* ---------- Timeline ---------- */
+.timeline-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+.month-nav-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+.month-nav-wrap select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 7px 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding: 14px;
+}
+
+.cal-weekday {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-align: center;
+  padding-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.cal-day {
+  min-height: 62px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  background: var(--surface-alt);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .12s var(--ease-out-apple);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cal-day:hover { border-color: var(--accent); }
+.cal-day:active { transform: scale(0.97); }
+.cal-day.empty { background: transparent; cursor: default; }
+.cal-day.empty:hover { border-color: transparent; }
+.cal-day.has-activity { background: color-mix(in srgb, var(--accent) 10%, var(--surface-alt)); }
+.cal-day.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--surface-alt)); }
+.cal-day .cal-daynum { font-weight: 700; color: var(--text); }
+.cal-day .cal-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.cal-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.cal-badge.visits { background: var(--accent); }
+.cal-badge.trips { background: var(--work); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-day:active { transform: none; }
+}
+
+.day-detail { min-height: 200px; }
+
+.event-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+}
+.event-item:last-child { border-bottom: none; }
+.event-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.event-body { flex: 1; }
+.event-title { font-weight: 600; }
+.event-time { color: var(--text-muted); font-size: 12px; }
+.event-extra {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Insights ---------- */
+.insights-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.data-table th, table.data-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+table.data-table td { font-variant-numeric: tabular-nums; }
+table.data-table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-weight: 600;
+}
+table.data-table tbody tr:hover { background: var(--surface-alt); }
+
+.year-review-card { margin-top: 4px; }
+.year-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.year-review-header select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.year-review-summary {
+  margin-top: 14px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(150deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 55%, var(--work)) 100%);
+  color: #fff;
+  padding: 26px 28px;
+  box-shadow: var(--shadow-card-lg);
+}
+.year-review-summary h2 { font-size: 26px; margin-bottom: 4px; letter-spacing: -0.02em; }
+.year-review-summary .yrs-sub { opacity: .88; font-size: 13.5px; margin-bottom: 18px; }
+.yrs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.yrs-item .yrs-value {
+  font-size: 19px;
+  font-weight: 700;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  font-variant-numeric: tabular-nums;
+}
+.yrs-item .yrs-label { font-size: 11.5px; opacity: .85; margin-top: 2px; }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 20px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  box-shadow: var(--shadow-card-lg);
+  z-index: 100;
+  max-width: 520px;
+  text-align: center;
+}
+.toast.is-error { background: var(--danger); color: #fff; }
+
+/* ---------- Refresh spinner ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .ph-arrow-clockwise.spinning { animation: spin 0.8s linear infinite; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Leaflet control override ---------- */
+.leaflet-container { font-family: inherit; background: var(--surface-alt); }
+
+/* ---------- Skeleton loaders ---------- */
+.skeleton {
+  border-radius: var(--radius-control);
+  background: linear-gradient(100deg, var(--skeleton-base) 40%, var(--skeleton-shine) 50%, var(--skeleton-base) 60%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shine {
+  0% { background-position: 120% 0; }
+  100% { background-position: -20% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--skeleton-base); }
+}
+
+.skeleton-row { height: 16px; margin-bottom: 10px; }
+.skeleton-tile { border-radius: var(--radius-card); }
+
+/* ---------- Reveal-on-view stagger animation ---------- */
+.stagger-list .ranked-row,
+.stagger-list tbody tr,
+.stagger-list .event-item {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .45s var(--ease-out-apple), transform .45s var(--ease-out-apple);
+}
+.stagger-list.in-view .ranked-row,
+.stagger-list.in-view tbody tr,
+.stagger-list.in-view .event-item {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stagger-list .ranked-row,
+  .stagger-list tbody tr,
+  .stagger-list .event-item {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ============================================================
+   Standalone-only additions — import UI, privacy note, geocode
+   progress pill, and a phone-width layout (the desktop design
+   above is otherwise untouched).
+   ============================================================ */
+
+.header-right { display: flex; align-items: center; gap: 10px; }
+#import-file-input { display: none; }
+
+.empty-banner { flex-wrap: wrap; row-gap: 8px; }
+
+.import-group { flex-wrap: wrap; }
+.privacy-note {
+  font-size: 12px;
+  color: var(--text-faint);
+  max-width: 380px;
+  line-height: 1.4;
+}
+
+.geocode-progress {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 7px 14px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  box-shadow: var(--shadow-card);
+  font-variant-numeric: tabular-nums;
+  transition: opacity .2s ease;
+}
+.geocode-progress i { color: var(--accent); font-size: 14px; }
+
+.empty-state-full {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+  padding: 90px 24px;
+  color: var(--text-muted);
+}
+.empty-state-full i.big-icon { font-size: 46px; color: var(--text-faint); }
+.empty-state-full h2 { color: var(--text); font-size: 20px; margin-bottom: 0; }
+.empty-state-full .privacy-note { max-width: 420px; }
+
+@media (max-width: 700px) {
+  html, body { min-width: 0; }
+  .app-header { padding: 12px 16px; gap: 10px; flex-wrap: wrap; }
+  .header-left { flex: 1; }
+  .header-status { order: 3; flex-basis: 100%; text-align: left; }
+  .header-right span { display: none; }
+  .header-right .btn { padding: 8px 12px; }
+  .tabs { padding: 8px 10px; top: 0; overflow-x: auto; justify-content: flex-start; }
+  .tab-panels { padding: 16px 16px 40px; }
+  .panel-toolbar { gap: 10px; }
+  .bento-grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: auto; }
+  .stat-tile.hero { grid-column: 1 / 3; grid-row: auto; }
+  .stat-tile.tile-c { grid-column: 1; grid-row: auto; }
+  .stat-tile.tile-d { grid-column: 2; grid-row: auto; }
+  .stat-tile.tile-e { grid-column: 1 / 3; grid-row: auto; }
+  .stats-grid, .insights-grid, .timeline-layout { grid-template-columns: 1fr; }
+  .map-container { height: 380px; }
+  .yrs-grid { grid-template-columns: repeat(2, 1fr); }
+  .geocode-progress { left: 14px; right: 14px; top: auto; bottom: 78px; justify-content: center; }
+  .privacy-note { max-width: 100%; }
+  .import-group { width: 100%; }
+  table.data-table { font-size: 12px; }
+}
+</style>
+</head>
+<body>
+
+<header class="toolbar app-header">
+  <div class="header-left">
+    <i class="ph ph-compass logo-icon" aria-hidden="true"></i>
+    <span class="logo">Timeline</span>
+  </div>
+  <div class="header-status" id="status-summary">
+    <span class="status-text">Loading…</span>
+  </div>
+  <div class="header-right">
+    <input type="file" id="import-file-input" accept=".json,application/json" class="hidden">
+    <button id="import-btn-header" class="btn btn-primary">
+      <i class="ph ph-upload-simple" aria-hidden="true"></i>
+      <span>Import Timeline JSON</span>
+    </button>
+  </div>
+</header>
+
+<div id="empty-state-banner" class="empty-banner hidden">
+  <i class="ph ph-map-pin-line" aria-hidden="true"></i>
+  <span>No data yet — import your exported Google Timeline JSON to get started.</span>
+  <button id="import-btn-empty" class="btn btn-primary btn-pill">
+    <i class="ph ph-upload-simple" aria-hidden="true"></i><span>Import Timeline JSON</span>
+  </button>
+</div>
+
+<nav class="toolbar tabs">
+  <button class="tab-btn active" data-tab="map"><i class="ph ph-map-trifold" aria-hidden="true"></i><span>Map</span></button>
+  <button class="tab-btn" data-tab="stats"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i><span>Stats</span></button>
+  <button class="tab-btn" data-tab="timeline"><i class="ph ph-calendar-blank" aria-hidden="true"></i><span>Timeline</span></button>
+  <button class="tab-btn" data-tab="insights"><i class="ph ph-sparkle" aria-hidden="true"></i><span>Insights</span></button>
+</nav>
+
+<main class="tab-panels">
+
+  <!-- MAP TAB -->
+  <section id="tab-map" class="tab-panel active">
+    <div class="panel-toolbar">
+      <div class="filter-group chip-group">
+        <label class="chip-field">From <input type="date" id="map-start"></label>
+        <label class="chip-field">To <input type="date" id="map-end"></label>
+        <button id="map-apply-filter" class="btn btn-secondary btn-pill">Apply</button>
+        <button id="map-clear-filter" class="btn btn-ghost btn-pill">Clear</button>
+      </div>
+      <div class="filter-group">
+        <button id="map-toggle-view" class="btn btn-secondary btn-pill">
+          <i class="ph ph-map-pin" aria-hidden="true"></i>
+          <span>Show Markers</span>
+        </button>
+      </div>
+    </div>
+    <div class="panel-toolbar import-group">
+      <button id="import-btn-map" class="btn btn-primary btn-pill">
+        <i class="ph ph-upload-simple" aria-hidden="true"></i>
+        <span>Import Timeline JSON</span>
+      </button>
+      <span class="privacy-note">Place names are looked up from OpenStreetMap as needed; your raw location data stays on this device.</span>
+    </div>
+    <div id="map-status" class="panel-status"></div>
+    <div id="map-container" class="map-container card"></div>
+  </section>
+
+  <!-- STATS TAB -->
+  <section id="tab-stats" class="tab-panel">
+    <div id="stats-status" class="panel-status"></div>
+    <div class="bento-grid" id="stats-cards"></div>
+    <div class="stats-grid">
+      <div class="card chart-card">
+        <h3><i class="ph ph-chart-donut" aria-hidden="true"></i> Time by Category</h3>
+        <div class="chart-wrap"><canvas id="category-chart"></canvas></div>
+      </div>
+      <div class="card">
+        <h3><i class="ph ph-city" aria-hidden="true"></i> Top Cities</h3>
+        <div id="top-cities-list" class="ranked-list stagger-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIMELINE TAB -->
+  <section id="tab-timeline" class="tab-panel">
+    <div id="timeline-status" class="panel-status"></div>
+    <div class="timeline-layout">
+      <div class="month-nav-wrap">
+        <label for="month-select">Month</label>
+        <select id="month-select"></select>
+      </div>
+      <div id="calendar-grid" class="calendar-grid card"></div>
+      <div id="day-detail" class="day-detail card stagger-list">
+        <p class="muted">Select a day on the calendar to see events.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSIGHTS TAB -->
+  <section id="tab-insights" class="tab-panel">
+    <div id="insights-status" class="panel-status"></div>
+
+    <div class="insights-grid">
+      <div class="card">
+        <h3><i class="ph ph-trophy" aria-hidden="true"></i> Top Places</h3>
+        <div id="top-places-table" class="stagger-list"></div>
+      </div>
+      <div class="card chart-card">
+        <h3><i class="ph ph-car" aria-hidden="true"></i> Transport Modes</h3>
+        <div class="chart-wrap"><canvas id="transport-chart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card year-review-card">
+      <div class="year-review-header">
+        <h3><i class="ph ph-confetti" aria-hidden="true"></i> Year in Review</h3>
+        <select id="year-select"></select>
+      </div>
+      <div id="year-review-content"></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="geocode-progress" class="geocode-progress hidden">
+  <i class="ph ph-map-trifold" aria-hidden="true"></i>
+  <span id="geocode-progress-text">Resolving place names: 0/0</span>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- ============================================================
+     Data layer — IndexedDB persistence + in-browser port of
+     backend/parser.py and backend/stats.py.
+     ============================================================ -->
+<script>
+/* db.js — thin promisified wrapper around IndexedDB. Every call is
+ * wrapped so a failure (private-browsing, storage disabled, etc.)
+ * degrades to an in-memory-only session instead of crashing the app. */
+window.Db = (function () {
+  "use strict";
+  const DB_NAME = "timeline-dashboard";
+  const DB_VERSION = 1;
+  const STORES = ["visits", "trips", "paths", "geocode", "files", "meta"];
+  let dbPromise = null;
+  let available = true;
+
+  function open() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) {
+        reject(new Error("IndexedDB not supported"));
+        return;
+      }
+      let req;
+      try {
+        req = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        STORES.forEach((name) => {
+          if (!db.objectStoreNames.contains(name)) {
+            const keyPath = name === "meta" ? "key" : name === "geocode" ? "key" : name === "files" ? "key" : "id";
+            db.createObjectStore(name, { keyPath });
+          }
+        });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+    });
+    return dbPromise;
+  }
+
+  async function getAll(store) {
+    if (!available) return [];
+    try {
+      const db = await open();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readonly");
+        const req = tx.objectStore(store).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      available = false;
+      console.warn("IndexedDB read failed, continuing without persistence:", err);
+      return [];
+    }
+  }
+
+  async function putAll(store, records) {
+    if (!available || !records || !records.length) return;
+    try {
+      const db = await open();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readwrite");
+        const os = tx.objectStore(store);
+        records.forEach((r) => os.put(r));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (err) {
+      available = false;
+      console.warn("IndexedDB write failed, continuing without persistence:", err);
+    }
+  }
+
+  async function put(store, record) {
+    return putAll(store, [record]);
+  }
+
+  return { open, getAll, putAll, put, isAvailable: () => available };
+})();
+</script>
+
+<script>
+/* timeline-parser.js + stats.js ported to vanilla JS — operates on the
+ * parsed JSON entirely in memory / IndexedDB, mirroring backend/parser.py
+ * and backend/stats.py field-for-field so the ported UI modules below
+ * (map.js/stats.js/timeline.js/insights.js) need no changes. */
+window.Local = (function () {
+  "use strict";
+
+  const MODE_DISPLAY = {
+    IN_PASSENGER_VEHICLE: "Driving",
+    IN_VEHICLE: "Driving",
+    MOTORCYCLING: "Motorcycling",
+    WALKING: "Walking",
+    CYCLING: "Cycling",
+    IN_BUS: "Transit",
+    IN_TRAIN: "Transit",
+    IN_SUBWAY: "Transit",
+    IN_TRAM: "Transit",
+  };
+  const SEMANTIC_TYPE_CATEGORY = { INFERRED_HOME: "home", INFERRED_WORK: "work" };
+
+  function modeDisplayName(rawType) {
+    return MODE_DISPLAY[(rawType || "").toUpperCase()] || "Other";
+  }
+
+  function parseLatLng(s) {
+    const parts = String(s).split(",");
+    const lat = parseFloat(parts[0].trim().replace(/°$/, ""));
+    const lng = parseFloat(parts[1].trim().replace(/°$/, ""));
+    if (!isFinite(lat) || !isFinite(lng)) throw new Error("bad latLng: " + s);
+    return [lat, lng];
+  }
+
+  // Synchronous 64-bit FNV-1a hash -> 16 hex chars. Used only as a stable,
+  // content-addressed dedup key (mirrors parser.py's sha1(start|end)[:16]
+  // in spirit, not byte-for-byte — that's fine, it's never shown to the
+  // user, only used so re-importing the same export upserts in place).
+  function hashHex16(str) {
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    const mask = 0xffffffffffffffffn;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= BigInt(str.charCodeAt(i));
+      hash = (hash * prime) & mask;
+    }
+    return hash.toString(16).padStart(16, "0");
+  }
+
+  function idFor(prefix, startTime, endTime) {
+    return `${prefix}_${hashHex16(`${startTime}|${endTime}`)}`;
+  }
+
+  function parseVisitSeg(seg) {
+    const startTime = seg.startTime, endTime = seg.endTime;
+    const visit = seg.visit;
+    const tc = visit.topCandidate;
+    const [lat, lng] = parseLatLng(tc.placeLocation.latLng);
+    const semanticType = tc.semanticType || "UNKNOWN";
+    const category = SEMANTIC_TYPE_CATEGORY[semanticType] || "other";
+    let probability = tc.probability;
+    if (probability === undefined || probability === null) probability = visit.probability;
+    probability = parseFloat(probability);
+    if (!isFinite(probability)) probability = 0;
+    return {
+      id: idFor("v", startTime, endTime),
+      start_time: startTime,
+      end_time: endTime,
+      lat, lng,
+      place_id: tc.placeId || null,
+      semantic_type: semanticType,
+      category,
+      probability,
+    };
+  }
+
+  function parseTripSeg(seg) {
+    const startTime = seg.startTime, endTime = seg.endTime;
+    const activity = seg.activity;
+    const [startLat, startLng] = parseLatLng(activity.start.latLng);
+    const [endLat, endLng] = parseLatLng(activity.end.latLng);
+    const tc = activity.topCandidate || {};
+    const modeRaw = tc.type || "UNKNOWN";
+    let distance = parseFloat(activity.distanceMeters);
+    if (!isFinite(distance)) distance = 0;
+    let probability = activity.probability;
+    if (probability === undefined || probability === null) probability = tc.probability;
+    probability = parseFloat(probability);
+    if (!isFinite(probability)) probability = 0;
+    return {
+      id: idFor("t", startTime, endTime),
+      start_time: startTime,
+      end_time: endTime,
+      start_lat: startLat, start_lng: startLng,
+      end_lat: endLat, end_lng: endLng,
+      distance_meters: distance,
+      mode_raw: modeRaw,
+      mode: modeDisplayName(modeRaw),
+      probability,
+    };
+  }
+
+  function parsePathSeg(seg) {
+    const startTime = seg.startTime, endTime = seg.endTime;
+    const points = (seg.timelinePath || []).map((p) => {
+      const [lat, lng] = parseLatLng(p.point);
+      return [lat, lng, p.time || null];
+    });
+    return { id: idFor("p", startTime, endTime), start_time: startTime, end_time: endTime, points };
+  }
+
+  function parseSegments(segments) {
+    const visits = [], trips = [], paths = [];
+    let skipped = 0;
+    for (const seg of segments) {
+      try {
+        if (seg && "visit" in seg) visits.push(parseVisitSeg(seg));
+        else if (seg && "activity" in seg) trips.push(parseTripSeg(seg));
+        else if (seg && "timelinePath" in seg) paths.push(parsePathSeg(seg));
+        else if (seg && "timelineMemory" in seg) skipped++;
+        else skipped++;
+      } catch (err) {
+        skipped++;
+      }
+    }
+    return { visits, trips, paths, skipped };
+  }
+
+  function parseFrequentPlaces(profile) {
+    const out = [];
+    const list = (profile && profile.frequentPlaces) || [];
+    for (const fp of list) {
+      try {
+        const [lat, lng] = parseLatLng(fp.placeLocation);
+        out.push({ place_id: fp.placeId || null, lat, lng, label: fp.label || null });
+      } catch (err) {
+        /* skip malformed, same as backend */
+      }
+    }
+    return out;
+  }
+
+  // ---------- in-memory state (mirrors the sqlite tables) ----------
+  let visitsById = new Map();
+  let tripsById = new Map();
+  let pathsById = new Map();
+  let filesByKey = new Map();
+  let geocodeCache = new Map(); // "lat,lng" (4dp) -> place name
+  let visits = [], trips = [], paths = [], files = [];
+  let home = null, work = null;
+  let dataVersion = 0;
+
+  function rebuildArrays() {
+    visits = Array.from(visitsById.values());
+    trips = Array.from(tripsById.values());
+    paths = Array.from(pathsById.values());
+    files = Array.from(filesByKey.values());
+    dataVersion++;
+  }
+
+  function roundKey(lat, lng) {
+    return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  }
+
+  function getPlaceName(lat, lng) {
+    return geocodeCache.get(roundKey(lat, lng)) || "Unknown place";
+  }
+
+  function dateOf(iso) {
+    return iso.slice(0, 10);
+  }
+
+  function inRange(iso, start, end) {
+    const d = dateOf(iso);
+    if (start && d < start) return false;
+    if (end && d > end) return false;
+    return true;
+  }
+
+  async function loadFromDB() {
+    const [vRows, tRows, pRows, fRows, mRows, gRows] = await Promise.all([
+      Db.getAll("visits"), Db.getAll("trips"), Db.getAll("paths"),
+      Db.getAll("files"), Db.getAll("meta"), Db.getAll("geocode"),
+    ]);
+    vRows.forEach((v) => visitsById.set(v.id, v));
+    tRows.forEach((t) => tripsById.set(t.id, t));
+    pRows.forEach((p) => pathsById.set(p.id, p));
+    fRows.forEach((f) => filesByKey.set(f.key, f));
+    mRows.forEach((m) => {
+      if (m.key === "home") home = m.value;
+      if (m.key === "work") work = m.value;
+    });
+    gRows.forEach((g) => geocodeCache.set(g.key, g.name));
+    rebuildArrays();
+  }
+
+  async function importData(data, fileMeta) {
+    const fileKey = `${fileMeta.name}|${fileMeta.size}|${fileMeta.lastModified}`;
+    const segments = (data && data.semanticSegments) || [];
+    const parsed = parseSegments(segments);
+    const frequentPlaces = parseFrequentPlaces(data && data.userLocationProfile);
+    frequentPlaces.forEach((fp) => {
+      if (fp.label === "HOME") home = { lat: fp.lat, lng: fp.lng, place_id: fp.place_id };
+      else if (fp.label === "WORK") work = { lat: fp.lat, lng: fp.lng, place_id: fp.place_id };
+    });
+
+    parsed.visits.forEach((v) => visitsById.set(v.id, v));
+    parsed.trips.forEach((t) => tripsById.set(t.id, t));
+    parsed.paths.forEach((p) => pathsById.set(p.id, p));
+
+    const fileRecord = {
+      key: fileKey, name: fileMeta.name, size: fileMeta.size,
+      segment_count: segments.length, skipped_count: parsed.skipped,
+      imported_at: new Date().toISOString(),
+    };
+    filesByKey.set(fileKey, fileRecord);
+
+    await Promise.all([
+      Db.putAll("visits", parsed.visits),
+      Db.putAll("trips", parsed.trips),
+      Db.putAll("paths", parsed.paths),
+      Db.put("files", fileRecord),
+      home ? Db.put("meta", { key: "home", value: home }) : Promise.resolve(),
+      work ? Db.put("meta", { key: "work", value: work }) : Promise.resolve(),
+    ]);
+
+    rebuildArrays();
+
+    return {
+      newVisits: parsed.visits.length, newTrips: parsed.trips.length,
+      newPaths: parsed.paths.length, skipped: parsed.skipped,
+      totalVisits: visits.length, totalTrips: trips.length,
+    };
+  }
+
+  // ---------- status ----------
+  function buildStatus() {
+    const segmentCount = files.reduce((s, f) => s + (f.segment_count || 0), 0);
+    const skippedCount = files.reduce((s, f) => s + (f.skipped_count || 0), 0);
+    const mins = [], maxs = [];
+    [visits, trips, paths].forEach((arr) => {
+      if (arr.length) {
+        let mn = arr[0].start_time, mx = arr[0].end_time;
+        arr.forEach((r) => {
+          if (r.start_time < mn) mn = r.start_time;
+          if (r.end_time > mx) mx = r.end_time;
+        });
+        mins.push(mn);
+        maxs.push(mx);
+      }
+    });
+    let dateRange = null;
+    if (mins.length && maxs.length) {
+      dateRange = { start: mins.reduce((a, b) => (a < b ? a : b)), end: maxs.reduce((a, b) => (a > b ? a : b)) };
+    }
+    return {
+      loaded: segmentCount > 0,
+      files: files.map((f) => f.name),
+      segment_count: segmentCount,
+      visit_count: visits.length,
+      trip_count: trips.length,
+      unclassified_path_count: paths.length,
+      skipped_count: skippedCount,
+      date_range: dateRange,
+      home, work,
+    };
+  }
+
+  // ---------- map ----------
+  function heatmapPoints(start, end) {
+    const vis = visits.filter((v) => inRange(v.start_time, start, end));
+    const trp = trips.filter((t) => inRange(t.start_time, start, end));
+    const pth = paths.filter((p) => inRange(p.start_time, start, end));
+
+    const durations = vis.map((v) => Math.max((new Date(v.end_time) - new Date(v.start_time)) / 60000, 0));
+    const maxDuration = durations.length ? Math.max(...durations) : 1;
+    const md = maxDuration || 1;
+
+    const points = [];
+    vis.forEach((v, i) => {
+      const weight = Math.round((durations[i] / md) * 10000) / 10000;
+      points.push([v.lat, v.lng, weight]);
+    });
+    trp.forEach((t) => {
+      points.push([t.start_lat, t.start_lng, 1]);
+      points.push([t.end_lat, t.end_lng, 1]);
+    });
+    pth.forEach((p) => {
+      p.points.forEach((pt) => points.push([pt[0], pt[1], 1]));
+    });
+    return points;
+  }
+
+  function visitsInRange(start, end, category) {
+    let vis = visits.filter((v) => inRange(v.start_time, start, end));
+    if (category) vis = vis.filter((v) => v.category === category);
+    vis = vis.slice().sort((a, b) => (a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0));
+    return vis.map((v) => {
+      const durationMinutes = Math.round(Math.max((new Date(v.end_time) - new Date(v.start_time)) / 60000, 0));
+      return {
+        id: v.id, lat: v.lat, lng: v.lng,
+        place_name: getPlaceName(v.lat, v.lng),
+        category: v.category,
+        start_time: v.start_time, end_time: v.end_time,
+        duration_minutes: durationMinutes,
+      };
+    });
+  }
+
+  // ---------- stats summary ----------
+  function statsSummary(start, end) {
+    const vis = visits.filter((v) => inRange(v.start_time, start, end));
+    const trp = trips.filter((t) => inRange(t.start_time, start, end));
+    const pth = paths.filter((p) => inRange(p.start_time, start, end));
+
+    const totalDistanceKm = Math.round((trp.reduce((s, t) => s + t.distance_meters, 0) / 1000) * 10) / 10;
+
+    const distinctPlaces = new Set(vis.map((v) => roundKey(v.lat, v.lng)));
+
+    const categoryMinutes = { home: 0, work: 0, other: 0 };
+    const cityAgg = new Map();
+    vis.forEach((v) => {
+      const minutes = Math.round(Math.max((new Date(v.end_time) - new Date(v.start_time)) / 60000, 0));
+      categoryMinutes[v.category] = (categoryMinutes[v.category] || 0) + minutes;
+      const placeName = getPlaceName(v.lat, v.lng);
+      if (!cityAgg.has(placeName)) cityAgg.set(placeName, { visits: 0, minutes: 0 });
+      const agg = cityAgg.get(placeName);
+      agg.visits += 1;
+      agg.minutes += minutes;
+    });
+    let topCities = Array.from(cityAgg.entries()).map(([name, agg]) => ({ name, visits: agg.visits, minutes: agg.minutes }));
+    topCities.sort((a, b) => b.visits - a.visits || b.minutes - a.minutes);
+    topCities = topCities.slice(0, 10);
+
+    const allDates = [
+      ...vis.map((v) => dateOf(v.start_time)),
+      ...trp.map((t) => dateOf(t.start_time)),
+      ...pth.map((p) => dateOf(p.start_time)),
+    ];
+    let daysCovered = 0;
+    if (allDates.length) {
+      const dMin = new Date(allDates.reduce((a, b) => (a < b ? a : b)) + "T00:00:00Z").getTime();
+      const dMax = new Date(allDates.reduce((a, b) => (a > b ? a : b)) + "T00:00:00Z").getTime();
+      daysCovered = Math.round((dMax - dMin) / 86400000) + 1;
+    }
+
+    return {
+      total_distance_km: totalDistanceKm,
+      total_places_visited: distinctPlaces.size,
+      total_trips: trp.length,
+      days_covered: daysCovered,
+      category_minutes: categoryMinutes,
+      top_cities: topCities,
+    };
+  }
+
+  // ---------- timeline ----------
+  function timelineMonths() {
+    const agg = new Map();
+    visits.forEach((v) => {
+      const key = v.start_time.slice(0, 7);
+      if (!agg.has(key)) agg.set(key, { visit_count: 0, trip_count: 0, distance_km: 0 });
+      agg.get(key).visit_count++;
+    });
+    trips.forEach((t) => {
+      const key = t.start_time.slice(0, 7);
+      if (!agg.has(key)) agg.set(key, { visit_count: 0, trip_count: 0, distance_km: 0 });
+      const e = agg.get(key);
+      e.trip_count++;
+      e.distance_km += t.distance_meters / 1000;
+    });
+    return Array.from(agg.keys()).sort().map((key) => {
+      const [year, month] = key.split("-").map(Number);
+      const e = agg.get(key);
+      return { year, month, visit_count: e.visit_count, trip_count: e.trip_count, distance_km: Math.round(e.distance_km * 10) / 10 };
+    });
+  }
+
+  function timelineMonthDays(year, month) {
+    const prefix = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
+    const vis = visits.filter((v) => v.start_time.slice(0, 7) === prefix);
+    const trp = trips.filter((t) => t.start_time.slice(0, 7) === prefix);
+    const agg = new Map();
+    vis.forEach((v) => {
+      const d = dateOf(v.start_time);
+      if (!agg.has(d)) agg.set(d, { visit_count: 0, trip_count: 0, distance_km: 0 });
+      agg.get(d).visit_count++;
+    });
+    trp.forEach((t) => {
+      const d = dateOf(t.start_time);
+      if (!agg.has(d)) agg.set(d, { visit_count: 0, trip_count: 0, distance_km: 0 });
+      const e = agg.get(d);
+      e.trip_count++;
+      e.distance_km += t.distance_meters / 1000;
+    });
+    return Array.from(agg.keys()).sort().map((d) => {
+      const e = agg.get(d);
+      return { date: d, visit_count: e.visit_count, trip_count: e.trip_count, distance_km: Math.round(e.distance_km * 10) / 10 };
+    });
+  }
+
+  function timelineDayEvents(dateStr) {
+    const vis = visits.filter((v) => dateOf(v.start_time) === dateStr);
+    const trp = trips.filter((t) => dateOf(t.start_time) === dateStr);
+    const events = [];
+    vis.forEach((v) => {
+      events.push({
+        type: "visit", start_time: v.start_time, end_time: v.end_time,
+        place_name: getPlaceName(v.lat, v.lng), category: v.category, lat: v.lat, lng: v.lng,
+      });
+    });
+    trp.forEach((t) => {
+      events.push({
+        type: "trip", start_time: t.start_time, end_time: t.end_time, mode: t.mode,
+        distance_km: Math.round((t.distance_meters / 1000) * 10) / 10,
+        path: [[t.start_lat, t.start_lng], [t.end_lat, t.end_lng]],
+      });
+    });
+    events.sort((a, b) => (a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0));
+    return events;
+  }
+
+  // ---------- insights ----------
+  function topPlaces(limit) {
+    const agg = new Map();
+    visits.forEach((v) => {
+      const key = roundKey(v.lat, v.lng);
+      if (!agg.has(key)) agg.set(key, { lat: v.lat, lng: v.lng, visit_count: 0, total_minutes: 0, categories: new Map() });
+      const e = agg.get(key);
+      e.visit_count++;
+      const minutes = Math.round(Math.max((new Date(v.end_time) - new Date(v.start_time)) / 60000, 0));
+      e.total_minutes += minutes;
+      e.categories.set(v.category, (e.categories.get(v.category) || 0) + 1);
+    });
+    const places = Array.from(agg.values()).map((e) => {
+      let bestCat = null, bestCount = -1;
+      e.categories.forEach((count, cat) => {
+        if (count > bestCount) { bestCount = count; bestCat = cat; }
+      });
+      return {
+        place_name: getPlaceName(e.lat, e.lng), lat: e.lat, lng: e.lng,
+        visit_count: e.visit_count, total_minutes: e.total_minutes, category: bestCat,
+      };
+    });
+    places.sort((a, b) => b.visit_count - a.visit_count);
+    return places.slice(0, limit || 20);
+  }
+
+  function transportModes(start, end) {
+    const trp = trips.filter((t) => inRange(t.start_time, start, end));
+    const agg = new Map();
+    trp.forEach((t) => {
+      if (!agg.has(t.mode)) agg.set(t.mode, { trip_count: 0, total_distance_km: 0, total_minutes: 0 });
+      const e = agg.get(t.mode);
+      e.trip_count++;
+      e.total_distance_km += t.distance_meters / 1000;
+      const minutes = Math.round(Math.max((new Date(t.end_time) - new Date(t.start_time)) / 60000, 0));
+      e.total_minutes += minutes;
+    });
+    const modes = Array.from(agg.entries()).map(([mode, e]) => ({
+      mode, trip_count: e.trip_count, total_distance_km: Math.round(e.total_distance_km * 10) / 10, total_minutes: e.total_minutes,
+    }));
+    modes.sort((a, b) => b.trip_count - a.trip_count);
+    return modes;
+  }
+
+  function yearInReview(year) {
+    const prefix = String(year);
+    const vis = visits.filter((v) => v.start_time.slice(0, 4) === prefix);
+    const trp = trips.filter((t) => t.start_time.slice(0, 4) === prefix);
+    const pth = paths.filter((p) => p.start_time.slice(0, 4) === prefix);
+
+    const totalDistanceKm = Math.round((trp.reduce((s, t) => s + t.distance_meters, 0) / 1000) * 10) / 10;
+    const distinctPlaces = new Set(vis.map((v) => roundKey(v.lat, v.lng)));
+    const cities = Array.from(new Set(vis.map((v) => getPlaceName(v.lat, v.lng)))).sort();
+
+    const monthTripCounts = new Map();
+    trp.forEach((t) => {
+      const m = Number(t.start_time.slice(5, 7));
+      monthTripCounts.set(m, (monthTripCounts.get(m) || 0) + 1);
+    });
+    let mostActiveMonth = null;
+    if (monthTripCounts.size) {
+      let bestM = null, bestC = -1;
+      monthTripCounts.forEach((c, m) => { if (c > bestC) { bestC = c; bestM = m; } });
+      mostActiveMonth = { year, month: bestM, trip_count: bestC };
+    }
+
+    const modeCounts = new Map();
+    trp.forEach((t) => modeCounts.set(t.mode, (modeCounts.get(t.mode) || 0) + 1));
+    let dominantMode = null;
+    if (modeCounts.size) {
+      let bestM = null, bestC = -1;
+      modeCounts.forEach((c, m) => { if (c > bestC) { bestC = c; bestM = m; } });
+      dominantMode = bestM;
+    }
+
+    const activeDates = new Set([
+      ...vis.map((v) => dateOf(v.start_time)),
+      ...trp.map((t) => dateOf(t.start_time)),
+      ...pth.map((p) => dateOf(p.start_time)),
+    ]);
+
+    return {
+      year, total_distance_km: totalDistanceKm, total_places: distinctPlaces.size,
+      cities_visited: cities, most_active_month: mostActiveMonth,
+      dominant_transport_mode: dominantMode, total_trips: trp.length,
+      total_days_with_activity: activeDates.size,
+    };
+  }
+
+  function geocodeStatus() {
+    const distinct = new Set(visits.map((v) => roundKey(v.lat, v.lng)));
+    let geocoded = 0;
+    distinct.forEach((k) => { if (geocodeCache.has(k)) geocoded++; });
+    return { online_enabled: true, total_places: distinct.size, geocoded, pending: Math.max(distinct.size - geocoded, 0) };
+  }
+
+  // ---------- geocoding support (used by the Geocoder module) ----------
+  function getUngeocodedVisitCoords() {
+    const seen = new Set();
+    const coords = [];
+    visits.forEach((v) => {
+      const key = roundKey(v.lat, v.lng);
+      if (geocodeCache.has(key) || seen.has(key)) return;
+      seen.add(key);
+      coords.push({ key, lat: v.lat, lng: v.lng });
+    });
+    return coords;
+  }
+
+  function setGeocodedName(key, name) {
+    geocodeCache.set(key, name);
+    dataVersion++;
+  }
+
+  return {
+    parseSegments, parseFrequentPlaces, // exposed for potential reuse/testing
+    loadFromDB, importData,
+    buildStatus, heatmapPoints, visitsInRange, statsSummary,
+    timelineMonths, timelineMonthDays, timelineDayEvents,
+    topPlaces, transportModes, yearInReview, geocodeStatus,
+    getUngeocodedVisitCoords, setGeocodedName,
+    getDataVersion: () => dataVersion,
+  };
+})();
+</script>
+
+<script>
+/* Routes App.apiGet/apiPost calls (see app.js below) to the Local data
+ * module instead of a real backend — same paths/params as the FastAPI
+ * routes in backend/api/*.py, so map.js/stats.js/timeline.js/insights.js
+ * need zero changes. */
+window.LocalRouter = (function () {
+  "use strict";
+
+  function get(path, params) {
+    params = params || {};
+    if (path === "/api/status") return Promise.resolve(Local.buildStatus());
+    if (path === "/api/map/heatmap") return Promise.resolve({ points: Local.heatmapPoints(params.start, params.end) });
+    if (path === "/api/map/visits") return Promise.resolve({ visits: Local.visitsInRange(params.start, params.end, params.category) });
+    if (path === "/api/stats/summary") return Promise.resolve(Local.statsSummary(params.start, params.end));
+    if (path === "/api/timeline/months") return Promise.resolve({ months: Local.timelineMonths() });
+    if (path === "/api/insights/top-places") return Promise.resolve({ places: Local.topPlaces(params.limit ? Number(params.limit) : 20) });
+    if (path === "/api/insights/transport-modes") return Promise.resolve({ modes: Local.transportModes(params.start, params.end) });
+    if (path === "/api/geocode/status") return Promise.resolve(Local.geocodeStatus());
+
+    let m;
+    if ((m = path.match(/^\/api\/timeline\/month\/(\d+)\/(\d+)$/))) {
+      return Promise.resolve({ days: Local.timelineMonthDays(Number(m[1]), Number(m[2])) });
+    }
+    if ((m = path.match(/^\/api\/timeline\/day\/(.+)$/))) {
+      return Promise.resolve({ date: m[1], events: Local.timelineDayEvents(m[1]) });
+    }
+    if ((m = path.match(/^\/api\/insights\/year-in-review\/(\d+)$/))) {
+      return Promise.resolve(Local.yearInReview(Number(m[1])));
+    }
+    return Promise.reject(new Error(`Unknown local route: ${path}`));
+  }
+
+  function post(path) {
+    if (path === "/api/geocode/refresh") return Promise.resolve({ message: "Geocoding runs automatically in the background as new places show up." });
+    return Promise.reject(new Error(`Unknown local route: ${path}`));
+  }
+
+  return { get, post };
+})();
+</script>
+
+<script>
+/* geocode.js — on-demand Nominatim (OpenStreetMap) reverse geocoding,
+ * rate-limited to ~1 req/sec, low priority, cached forever in IndexedDB
+ * by rounded lat/lng. Never blocks the UI; updates a small progress pill
+ * and periodically refreshes the visible tab as names resolve. */
+window.Geocoder = (function () {
+  "use strict";
+  const MIN_DELAY_MS = 1100;
+
+  let queue = [];
+  let total = 0;
+  let done = 0;
+  let running = false;
+  let lastRefresh = 0;
+
+  function updateProgressUI() {
+    const pill = document.getElementById("geocode-progress");
+    const text = document.getElementById("geocode-progress-text");
+    if (!pill || !text) return;
+    if (total === 0 || done >= total) {
+      pill.classList.add("hidden");
+      return;
+    }
+    pill.classList.remove("hidden");
+    text.textContent = `Resolving place names: ${done}/${total}`;
+  }
+
+  function maybeRefreshUI(force) {
+    const now = Date.now();
+    if (force || now - lastRefresh > 3000) {
+      lastRefresh = now;
+      if (window.__refreshAllTabs) window.__refreshAllTabs();
+    }
+  }
+
+  async function reverseGeocode(lat, lng) {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`;
+    const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const addr = data.address || {};
+    const city = addr.city || addr.town || addr.village || addr.county || addr.state || "Unknown place";
+    const country = addr.country || "";
+    return country ? `${city}, ${country}` : city;
+  }
+
+  async function processQueue() {
+    if (running) return;
+    running = true;
+    while (queue.length) {
+      const item = queue.shift();
+      let name = "Unknown place";
+      try {
+        name = await reverseGeocode(item.lat, item.lng);
+      } catch (err) {
+        console.warn("geocode failed for", item.key, err);
+      }
+      Local.setGeocodedName(item.key, name);
+      try {
+        await Db.put("geocode", { key: item.key, name, source: "online", updated_at: new Date().toISOString() });
+      } catch (err) { /* non-fatal, cache stays in memory this session */ }
+      done++;
+      updateProgressUI();
+      maybeRefreshUI(false);
+      if (queue.length) await new Promise((r) => setTimeout(r, MIN_DELAY_MS));
+    }
+    running = false;
+    maybeRefreshUI(true);
+    setTimeout(updateProgressUI, 50);
+  }
+
+  function enqueue(coords) {
+    const existingKeys = new Set(queue.map((c) => c.key));
+    coords.forEach((c) => {
+      if (!existingKeys.has(c.key)) {
+        queue.push(c);
+        existingKeys.add(c.key);
+      }
+    });
+    total = done + queue.length;
+    updateProgressUI();
+    processQueue();
+  }
+
+  // Recompute the ungeocoded set from scratch and (re)start the queue.
+  // Safe/idempotent to call after every import and once on boot (to
+  // resume anything left over from a previous session).
+  function resume() {
+    done = 0;
+    const coords = Local.getUngeocodedVisitCoords();
+    total = coords.length;
+    queue = [];
+    if (coords.length) enqueue(coords);
+    else updateProgressUI();
+  }
+
+  return { resume };
+})();
+</script>
+
+<!-- ============================================================
+     UI layer — app.js is the original file with apiGet/apiPost
+     re-pointed at LocalRouter and boot wiring adjusted to wait for
+     IndexedDB; map.js/stats.js/timeline.js/insights.js are inlined
+     completely unchanged from frontend/js/.
+     ============================================================ -->
+<script>
+/* app.js — shared utilities, header status, tab switching.
+ * (ported from frontend/js/app.js; only apiGet/apiPost bodies and the
+ * boot trigger at the bottom were changed for the standalone build) */
+
+(function () {
+  "use strict";
+
+  const toastEl = document.getElementById("toast");
+  let toastTimer = null;
+
+  function showToast(message, isError) {
+    if (!toastEl) return;
+    toastEl.textContent = message;
+    toastEl.classList.toggle("is-error", !!isError);
+    toastEl.classList.remove("hidden");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 4500);
+  }
+
+  async function apiGet(path, params) {
+    return LocalRouter.get(path, params || {});
+  }
+
+  async function apiPost(path) {
+    return LocalRouter.post(path);
+  }
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function fmtDate(isoOrDateStr) {
+    if (!isoOrDateStr) return "";
+    const d = new Date(isoOrDateStr);
+    if (isNaN(d.getTime())) return isoOrDateStr;
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function fmtDateShort(isoOrDateStr) {
+    if (!isoOrDateStr) return "";
+    const d = new Date(isoOrDateStr);
+    if (isNaN(d.getTime())) return isoOrDateStr;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function fmtTime(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  function fmtMinutes(mins) {
+    if (mins === null || mins === undefined || isNaN(mins)) return "—";
+    mins = Math.round(mins);
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  function fmtNumber(n) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    return Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  }
+
+  function setPanelStatus(elId, text, isError) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.toggle("is-error", !!isError);
+  }
+
+  // ---------- Motion helpers (all respect prefers-reduced-motion) ----------
+
+  const reducedMotionMq = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  const prefersReducedMotion = () => !!(reducedMotionMq && reducedMotionMq.matches);
+
+  /** Animate a number counting up from 0 to `target`, writing through `render(value)`. */
+  function countUp(el, target, render, opts) {
+    opts = opts || {};
+    const duration = opts.duration || 700;
+    if (!el) return;
+    const numTarget = Number(target);
+    if (!isFinite(numTarget)) {
+      el.textContent = render ? render(target) : String(target);
+      return;
+    }
+    if (prefersReducedMotion()) {
+      el.textContent = render ? render(numTarget) : String(numTarget);
+      return;
+    }
+    const start = performance.now();
+    function tick(now) {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / duration);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      const value = numTarget * eased;
+      el.textContent = render ? render(value) : String(Math.round(value));
+      if (t < 1) requestAnimationFrame(tick);
+      else el.textContent = render ? render(numTarget) : String(numTarget);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /** Stagger-reveal the rows inside `container` (matched by the CSS in .stagger-list) once it scrolls into view. */
+  function revealList(container) {
+    if (!container) return;
+    container.classList.remove("in-view");
+    if (prefersReducedMotion() || typeof IntersectionObserver === "undefined") {
+      container.classList.add("in-view");
+      return;
+    }
+    const rows = container.querySelectorAll(".ranked-row, tbody tr, .event-item");
+    rows.forEach((row, i) => {
+      row.style.transitionDelay = `${Math.min(i, 20) * 40}ms`;
+    });
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          container.classList.add("in-view");
+          io.unobserve(container);
+        }
+      });
+    });
+    io.observe(container);
+  }
+
+  /** HTML for `n` pulsing skeleton bars, used while a section's real data is loading. */
+  function skeletonRows(n, heightPx) {
+    const h = heightPx || 16;
+    let html = "";
+    for (let i = 0; i < n; i++) {
+      html += `<div class="skeleton skeleton-row" style="height:${h}px;width:${85 - (i % 3) * 12}%"></div>`;
+    }
+    return html;
+  }
+
+  function skeletonTiles() {
+    return `
+      <div class="skeleton skeleton-tile" style="grid-column:1/3;grid-row:1/3;"></div>
+      <div class="skeleton skeleton-tile" style="grid-column:3;grid-row:1;"></div>
+      <div class="skeleton skeleton-tile" style="grid-column:4;grid-row:1;"></div>
+      <div class="skeleton skeleton-tile" style="grid-column:3/5;grid-row:2;"></div>`;
+  }
+
+  const App = {
+    apiGet,
+    apiPost,
+    showToast,
+    escapeHtml,
+    fmtDate,
+    fmtDateShort,
+    fmtTime,
+    fmtMinutes,
+    fmtNumber,
+    setPanelStatus,
+    countUp,
+    revealList,
+    skeletonRows,
+    skeletonTiles,
+    prefersReducedMotion,
+  };
+  window.App = App;
+
+  // ---------- Chart.js theming (Apple-neutral, single accent) ----------
+  function themeCharts() {
+    if (typeof Chart === "undefined") return;
+    const styles = getComputedStyle(document.documentElement);
+    const textMuted = styles.getPropertyValue("--text-muted").trim() || "#6e6e73";
+    const border = styles.getPropertyValue("--border").trim() || "rgba(0,0,0,0.08)";
+    Chart.defaults.color = textMuted;
+    Chart.defaults.borderColor = border;
+    Chart.defaults.font.family =
+      '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    if (prefersReducedMotion()) {
+      Chart.defaults.animation = false;
+    }
+  }
+  themeCharts();
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeCharts);
+  }
+
+  // Registry that tab modules populate.
+  window.Tabs = window.Tabs || {};
+
+  const TAB_NAMES = ["map", "stats", "timeline", "insights"];
+  let currentTab = "map";
+
+  function activateTab(name) {
+    if (!TAB_NAMES.includes(name)) return;
+    currentTab = name;
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tab === name);
+    });
+    document.querySelectorAll(".tab-panel").forEach((panel) => {
+      const isTarget = panel.id === `tab-${name}`;
+      if (isTarget) {
+        panel.classList.add("active", "entering");
+        // Force a reflow so the browser registers the "entering" (opacity:0) state
+        // before we remove it, otherwise the transition would be skipped.
+        void panel.offsetWidth;
+        requestAnimationFrame(() => panel.classList.remove("entering"));
+      } else {
+        panel.classList.remove("active", "entering");
+      }
+    });
+    const mod = window.Tabs[name];
+    if (mod && typeof mod.activate === "function") {
+      try {
+        mod.activate();
+      } catch (err) {
+        console.error(`Error activating tab ${name}:`, err);
+      }
+    }
+  }
+
+  function renderStatus(status) {
+    const statusEl = document.getElementById("status-summary");
+    const emptyBanner = document.getElementById("empty-state-banner");
+    if (!statusEl) return;
+
+    if (!status || !status.loaded || !status.segment_count) {
+      statusEl.textContent = "No data loaded";
+      statusEl.classList.add("is-empty");
+      statusEl.classList.remove("is-error");
+      emptyBanner.classList.remove("hidden");
+      return;
+    }
+
+    emptyBanner.classList.add("hidden");
+    statusEl.classList.remove("is-empty", "is-error");
+
+    const count = status.segment_count.toLocaleString();
+    let rangeText = "";
+    if (status.date_range && status.date_range.start && status.date_range.end) {
+      rangeText = ` · ${App.fmtDateShort(status.date_range.start)} – ${App.fmtDate(status.date_range.end)}`;
+    }
+    statusEl.textContent = `${count} segments loaded${rangeText}`;
+  }
+
+  let lastStatus = null;
+
+  async function fetchStatus() {
+    try {
+      const status = await App.apiGet("/api/status");
+      lastStatus = status;
+      renderStatus(status);
+      return status;
+    } catch (err) {
+      const statusEl = document.getElementById("status-summary");
+      if (statusEl) {
+        statusEl.textContent = `Error loading status: ${err.message}`;
+        statusEl.classList.add("is-error");
+      }
+      App.showToast(`Could not load status: ${err.message}`, true);
+      return null;
+    }
+  }
+
+  App.getLastStatus = () => lastStatus;
+  App.refreshStatus = fetchStatus;
+
+  function init() {
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+    });
+
+    Object.keys(window.Tabs).forEach((name) => {
+      const mod = window.Tabs[name];
+      if (mod && typeof mod.init === "function") {
+        try {
+          mod.init();
+        } catch (err) {
+          console.error(`Error initializing tab ${name}:`, err);
+        }
+      }
+    });
+
+    fetchStatus().then(() => {
+      // Activate the default (already-visible) tab to trigger its first load.
+      activateTab(currentTab);
+    });
+  }
+
+  // Standalone build: boot is triggered explicitly once IndexedDB has been
+  // read (see the boot script at the end of the file), not on
+  // DOMContentLoaded, so data is in memory before the first render.
+  App.boot = init;
+})();
+</script>
+
+<script>
+/* map.js — Tab 1: Map (heatmap / visit markers over Leaflet + OSM tiles).
+ * Ported unchanged from frontend/js/map.js. */
+
+(function () {
+  "use strict";
+
+  let map = null;
+  let heatLayer = null;
+  let markerLayer = null;
+  let view = "heatmap"; // 'heatmap' | 'markers'
+  let loaded = false;
+
+  const CATEGORY_COLOR = { home: "#3d5af1", work: "#17b897", other: "#e6a23c" };
+
+  function getFilters() {
+    const start = document.getElementById("map-start").value;
+    const end = document.getElementById("map-end").value;
+    return { start, end };
+  }
+
+  function ensureMap() {
+    if (map) return map;
+    map = L.map("map-container", { worldCopyJump: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+    // Reasonable default view until data arrives (world view).
+    map.setView([20, 0], 2);
+    return map;
+  }
+
+  function fitToPoints(points) {
+    if (!points || !points.length) return;
+    const bounds = L.latLngBounds(points.map((p) => [p[0], p[1]]));
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+  }
+
+  function clearLayers() {
+    if (heatLayer) {
+      map.removeLayer(heatLayer);
+      heatLayer = null;
+    }
+    if (markerLayer) {
+      map.removeLayer(markerLayer);
+      markerLayer = null;
+    }
+  }
+
+  function renderHeatmap(points) {
+    clearLayers();
+    if (!points || !points.length) return;
+    heatLayer = L.heatLayer(points, { radius: 20, blur: 18, maxZoom: 14 }).addTo(map);
+  }
+
+  function renderMarkers(visits) {
+    clearLayers();
+    markerLayer = L.layerGroup();
+    (visits || []).forEach((v) => {
+      const color = CATEGORY_COLOR[v.category] || CATEGORY_COLOR.other;
+      const marker = L.circleMarker([v.lat, v.lng], {
+        radius: 7,
+        color: "#fff",
+        weight: 1.5,
+        fillColor: color,
+        fillOpacity: 0.9,
+      });
+      const name = App.escapeHtml(v.place_name || "Unknown place");
+      const cat = App.escapeHtml(v.category || "other");
+      const dur = App.fmtMinutes(v.duration_minutes);
+      const when = v.start_time ? App.fmtDate(v.start_time) : "";
+      marker.bindPopup(
+        `<strong>${name}</strong><br>` +
+          `<span class="popup-category ${cat}">${cat}</span><br>` +
+          `<span>${when} · ${dur}</span>`
+      );
+      markerLayer.addLayer(marker);
+    });
+    markerLayer.addTo(map);
+  }
+
+  function toggleView() {
+    view = view === "heatmap" ? "markers" : "heatmap";
+    const btn = document.getElementById("map-toggle-view");
+    btn.textContent = view === "heatmap" ? "Show Markers" : "Show Heatmap";
+    renderCurrentView();
+  }
+
+  let lastHeatmapPoints = [];
+  let lastVisits = [];
+
+  function renderCurrentView() {
+    if (view === "heatmap") {
+      renderHeatmap(lastHeatmapPoints);
+    } else {
+      renderMarkers(lastVisits);
+    }
+  }
+
+  async function load() {
+    ensureMap();
+    App.setPanelStatus("map-status", "Loading map data…");
+    const filters = getFilters();
+    try {
+      const [heatRes, visitsRes] = await Promise.all([
+        App.apiGet("/api/map/heatmap", { start: filters.start, end: filters.end }),
+        App.apiGet("/api/map/visits", { start: filters.start, end: filters.end }),
+      ]);
+      lastHeatmapPoints = heatRes.points || [];
+      lastVisits = visitsRes.visits || [];
+
+      if (!lastHeatmapPoints.length && !lastVisits.length) {
+        App.setPanelStatus("map-status", "No location data for this period.");
+      } else {
+        App.setPanelStatus(
+          "map-status",
+          `${lastVisits.length.toLocaleString()} visits · ${lastHeatmapPoints.length.toLocaleString()} points`
+        );
+      }
+
+      renderCurrentView();
+
+      // Fit bounds to whichever dataset has points — works for any location on earth.
+      const boundsSource = lastHeatmapPoints.length ? lastHeatmapPoints : lastVisits.map((v) => [v.lat, v.lng]);
+      if (boundsSource.length) {
+        fitToPoints(boundsSource);
+      }
+      loaded = true;
+    } catch (err) {
+      App.setPanelStatus("map-status", `Error: ${err.message}`, true);
+      App.showToast(`Map data failed to load: ${err.message}`, true);
+    }
+  }
+
+  function init() {
+    document.getElementById("map-toggle-view").addEventListener("click", toggleView);
+    document.getElementById("map-apply-filter").addEventListener("click", () => load());
+    document.getElementById("map-clear-filter").addEventListener("click", () => {
+      document.getElementById("map-start").value = "";
+      document.getElementById("map-end").value = "";
+      load();
+    });
+  }
+
+  function activate() {
+    ensureMap();
+    // Leaflet needs a size recalculation the first time its container becomes visible.
+    setTimeout(() => map && map.invalidateSize(), 0);
+    if (!loaded) load();
+  }
+
+  function refresh() {
+    return load();
+  }
+
+  window.Tabs.map = { init, activate, refresh };
+})();
+</script>
+
+<script>
+/* stats.js — Tab 2: Stats summary (cards, category doughnut, top cities).
+ * Ported unchanged from frontend/js/stats.js. */
+
+(function () {
+  "use strict";
+
+  let loaded = false;
+  let chart = null;
+
+  const CATEGORY_COLOR = { home: "#3d5af1", work: "#17b897", other: "#e6a23c" };
+
+  function renderCardsSkeleton() {
+    document.getElementById("stats-cards").innerHTML = App.skeletonTiles();
+  }
+
+  function renderCards(summary) {
+    const el = document.getElementById("stats-cards");
+    el.innerHTML = `
+      <div class="stat-tile hero">
+        <i class="ph ph-path stat-icon" aria-hidden="true"></i>
+        <div>
+          <div class="stat-value" id="stat-distance">0 km</div>
+          <div class="stat-label">Total distance</div>
+        </div>
+      </div>
+      <div class="stat-tile tile-c">
+        <i class="ph ph-map-pin stat-icon" aria-hidden="true"></i>
+        <div class="stat-value" id="stat-places">0</div>
+        <div class="stat-label">Places visited</div>
+      </div>
+      <div class="stat-tile tile-d">
+        <i class="ph ph-car stat-icon" aria-hidden="true"></i>
+        <div class="stat-value" id="stat-trips">0</div>
+        <div class="stat-label">Total trips</div>
+      </div>
+      <div class="stat-tile tile-e">
+        <div>
+          <div class="stat-value" id="stat-days">0</div>
+          <div class="stat-label">Days covered</div>
+        </div>
+        <i class="ph ph-calendar-check stat-icon" aria-hidden="true" style="margin-bottom:0;font-size:26px;"></i>
+      </div>`;
+
+    App.countUp(document.getElementById("stat-distance"), summary.total_distance_km || 0, (v) => `${App.fmtNumber(v)} km`);
+    App.countUp(document.getElementById("stat-places"), summary.total_places_visited || 0, (v) => App.fmtNumber(Math.round(v)));
+    App.countUp(document.getElementById("stat-trips"), summary.total_trips || 0, (v) => App.fmtNumber(Math.round(v)));
+    App.countUp(document.getElementById("stat-days"), summary.days_covered || 0, (v) => App.fmtNumber(Math.round(v)));
+  }
+
+  function renderCategoryChart(categoryMinutes) {
+    const canvas = document.getElementById("category-chart");
+    const entries = Object.entries(categoryMinutes || {});
+    if (chart) {
+      chart.destroy();
+      chart = null;
+    }
+    if (!entries.length) return;
+
+    const labels = entries.map(([k]) => k.charAt(0).toUpperCase() + k.slice(1));
+    const hours = entries.map(([, mins]) => Math.round((mins / 60) * 10) / 10);
+    const colors = entries.map(([k]) => CATEGORY_COLOR[k] || "#9aa0b4");
+
+    chart = new Chart(canvas.getContext("2d"), {
+      type: "doughnut",
+      data: {
+        labels,
+        datasets: [{ data: hours, backgroundColor: colors, borderWidth: 2, borderColor: "#fff" }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.label}: ${ctx.formattedValue} hrs`,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function renderTopCities(cities) {
+    const el = document.getElementById("top-cities-list");
+    if (!cities || !cities.length) {
+      el.innerHTML = '<p class="muted">No city data available yet.</p>';
+      return;
+    }
+    const max = Math.max(...cities.map((c) => c.visits || 0), 1);
+    el.innerHTML = cities
+      .map(
+        (c, i) => `
+      <div class="ranked-row">
+        <span class="rank">${i + 1}</span>
+        <span class="ranked-name">${App.escapeHtml(c.name)}</span>
+        <span class="bar-bg"><span class="bar-fill" style="width:${((c.visits || 0) / max) * 100}%"></span></span>
+        <span class="ranked-meta">${App.fmtNumber(c.visits)} visits · ${App.fmtMinutes(c.minutes)}</span>
+      </div>`
+      )
+      .join("");
+    App.revealList(el);
+  }
+
+  async function load() {
+    App.setPanelStatus("stats-status", "Loading stats…");
+    renderCardsSkeleton();
+    document.getElementById("top-cities-list").innerHTML = App.skeletonRows(4, 18);
+    try {
+      const summary = await App.apiGet("/api/stats/summary");
+      App.setPanelStatus("stats-status", "");
+      renderCards(summary);
+      renderCategoryChart(summary.category_minutes);
+      renderTopCities(summary.top_cities);
+      loaded = true;
+    } catch (err) {
+      App.setPanelStatus("stats-status", `Error: ${err.message}`, true);
+      App.showToast(`Stats failed to load: ${err.message}`, true);
+      document.getElementById("stats-cards").innerHTML = "";
+    }
+  }
+
+  function init() {}
+
+  function activate() {
+    if (!loaded) load();
+  }
+
+  function refresh() {
+    return load();
+  }
+
+  window.Tabs.stats = { init, activate, refresh };
+})();
+</script>
+
+<script>
+/* timeline.js — Tab 3: Timeline (month picker + calendar grid + day detail).
+ * Ported unchanged from frontend/js/timeline.js. */
+
+(function () {
+  "use strict";
+
+  const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  let monthsLoaded = false;
+  let months = []; // [{year, month, visit_count, trip_count, distance_km}]
+  let selectedYear = null;
+  let selectedMonth = null;
+  let selectedDate = null;
+
+  function monthKey(y, m) {
+    return `${y}-${String(m).padStart(2, "0")}`;
+  }
+
+  function monthLabel(y, m) {
+    const d = new Date(y, m - 1, 1);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "long" });
+  }
+
+  function populateMonthSelect() {
+    const select = document.getElementById("month-select");
+    select.innerHTML = months
+      .map((m) => `<option value="${monthKey(m.year, m.month)}">${monthLabel(m.year, m.month)}</option>`)
+      .join("");
+  }
+
+  async function loadMonths() {
+    App.setPanelStatus("timeline-status", "Loading months…");
+    document.getElementById("calendar-grid").innerHTML = App.skeletonRows(1, 320);
+    try {
+      const res = await App.apiGet("/api/timeline/months");
+      months = (res.months || []).slice().sort((a, b) => (a.year - b.year) || (a.month - b.month));
+      monthsLoaded = true;
+      if (!months.length) {
+        App.setPanelStatus("timeline-status", "No timeline data available.");
+        document.getElementById("month-select").innerHTML = "";
+        document.getElementById("calendar-grid").innerHTML = "";
+        return;
+      }
+      App.setPanelStatus("timeline-status", "");
+      populateMonthSelect();
+      const last = months[months.length - 1];
+      selectedYear = last.year;
+      selectedMonth = last.month;
+      document.getElementById("month-select").value = monthKey(selectedYear, selectedMonth);
+      await loadMonthGrid();
+    } catch (err) {
+      App.setPanelStatus("timeline-status", `Error: ${err.message}`, true);
+      App.showToast(`Timeline months failed to load: ${err.message}`, true);
+    }
+  }
+
+  function renderCalendar(days) {
+    const grid = document.getElementById("calendar-grid");
+    const byDate = {};
+    (days || []).forEach((d) => (byDate[d.date] = d));
+
+    const firstOfMonth = new Date(selectedYear, selectedMonth - 1, 1);
+    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    const startOffset = firstOfMonth.getDay(); // 0=Sun
+
+    let html = WEEKDAYS.map((w) => `<div class="cal-weekday">${w}</div>`).join("");
+
+    for (let i = 0; i < startOffset; i++) {
+      html += `<div class="cal-day empty"></div>`;
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const info = byDate[dateStr];
+      const hasActivity = info && ((info.visit_count || 0) > 0 || (info.trip_count || 0) > 0);
+      const isSelected = dateStr === selectedDate;
+      let badges = "";
+      if (info && info.visit_count) badges += `<span class="cal-badge visits">${info.visit_count}v</span>`;
+      if (info && info.trip_count) badges += `<span class="cal-badge trips">${info.trip_count}t</span>`;
+      html += `
+        <div class="cal-day ${hasActivity ? "has-activity" : ""} ${isSelected ? "selected" : ""}" data-date="${dateStr}">
+          <span class="cal-daynum">${day}</span>
+          <span class="cal-badges">${badges}</span>
+        </div>`;
+    }
+
+    grid.innerHTML = html;
+    grid.querySelectorAll(".cal-day:not(.empty)").forEach((cell) => {
+      cell.addEventListener("click", () => selectDay(cell.dataset.date));
+    });
+  }
+
+  async function loadMonthGrid() {
+    App.setPanelStatus("timeline-status", "Loading month…");
+    document.getElementById("calendar-grid").innerHTML = App.skeletonRows(1, 320);
+    try {
+      const res = await App.apiGet(`/api/timeline/month/${selectedYear}/${selectedMonth}`);
+      App.setPanelStatus("timeline-status", "");
+      renderCalendar(res.days || []);
+    } catch (err) {
+      App.setPanelStatus("timeline-status", `Error: ${err.message}`, true);
+      App.showToast(`Month data failed to load: ${err.message}`, true);
+    }
+  }
+
+  const EVENT_ICON = { visit: "ph-map-pin", trip: "ph-car" };
+
+  function renderDayEvents(date, events) {
+    const el = document.getElementById("day-detail");
+    if (!events || !events.length) {
+      el.innerHTML = `<h4>${App.fmtDate(date)}</h4><p class="muted">No events recorded for this day.</p>`;
+      return;
+    }
+    const rows = events
+      .map((ev) => {
+        const iconClass = EVENT_ICON[ev.type] || "ph-dot";
+        const time = `${App.fmtTime(ev.start_time)} – ${App.fmtTime(ev.end_time)}`;
+        let title, extra;
+        if (ev.type === "visit") {
+          title = App.escapeHtml(ev.place_name || "Unknown place");
+          const cat = ev.category ? ` · ${App.escapeHtml(ev.category)}` : "";
+          extra = `${time}${cat}`;
+        } else {
+          title = App.escapeHtml(ev.mode || "Trip");
+          const dist = ev.distance_km !== undefined ? ` · ${App.fmtNumber(ev.distance_km)} km` : "";
+          extra = `${time}${dist}`;
+        }
+        return `
+        <div class="event-item">
+          <div class="event-icon"><i class="ph ${iconClass}" aria-hidden="true"></i></div>
+          <div class="event-body">
+            <div class="event-title">${title}</div>
+            <div class="event-extra">${extra}</div>
+          </div>
+        </div>`;
+      })
+      .join("");
+    el.innerHTML = `<h4>${App.fmtDate(date)}</h4>${rows}`;
+    App.revealList(el);
+  }
+
+  async function selectDay(dateStr) {
+    selectedDate = dateStr;
+    document.querySelectorAll(".cal-day").forEach((c) => c.classList.toggle("selected", c.dataset.date === dateStr));
+    const el = document.getElementById("day-detail");
+    el.innerHTML = `<h4>${App.fmtDate(dateStr)}</h4>${App.skeletonRows(3, 40)}`;
+    try {
+      const res = await App.apiGet(`/api/timeline/day/${dateStr}`);
+      renderDayEvents(dateStr, res.events || []);
+    } catch (err) {
+      el.innerHTML = `<h4>${App.fmtDate(dateStr)}</h4><p class="muted">Error loading day: ${App.escapeHtml(err.message)}</p>`;
+      App.showToast(`Day data failed to load: ${err.message}`, true);
+    }
+  }
+
+  function init() {
+    document.getElementById("month-select").addEventListener("change", (e) => {
+      const [y, m] = e.target.value.split("-").map(Number);
+      selectedYear = y;
+      selectedMonth = m;
+      selectedDate = null;
+      document.getElementById("day-detail").innerHTML = '<p class="muted">Select a day on the calendar to see events.</p>';
+      loadMonthGrid();
+    });
+  }
+
+  function activate() {
+    if (!monthsLoaded) loadMonths();
+  }
+
+  function refresh() {
+    monthsLoaded = false;
+    return loadMonths();
+  }
+
+  window.Tabs.timeline = { init, activate, refresh, getMonths: () => months };
+})();
+</script>
+
+<script>
+/* insights.js — Tab 4: Insights (top places, transport modes, year in review).
+ * Ported unchanged from frontend/js/insights.js. */
+
+(function () {
+  "use strict";
+
+  let loaded = false;
+  let transportChart = null;
+  let yearsPopulated = false;
+
+  function renderTopPlaces(places) {
+    const el = document.getElementById("top-places-table");
+    if (!places || !places.length) {
+      el.innerHTML = '<p class="muted">No place data available.</p>';
+      return;
+    }
+    const rows = places
+      .map(
+        (p, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${App.escapeHtml(p.place_name || "Unknown place")}</td>
+        <td>${App.escapeHtml(p.category || "")}</td>
+        <td>${App.fmtNumber(p.visit_count)}</td>
+        <td>${App.fmtMinutes(p.total_minutes)}</td>
+      </tr>`
+      )
+      .join("");
+    el.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>#</th><th>Place</th><th>Category</th><th>Visits</th><th>Total time</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    App.revealList(el);
+  }
+
+  function renderTransportChart(modes) {
+    const canvas = document.getElementById("transport-chart");
+    if (transportChart) {
+      transportChart.destroy();
+      transportChart = null;
+    }
+    if (!modes || !modes.length) return;
+    const labels = modes.map((m) => m.mode);
+    const distances = modes.map((m) => Math.round((m.total_distance_km || 0) * 10) / 10);
+    const palette = ["#3d5af1", "#17b897", "#e6a23c", "#e05260", "#9aa0b4", "#7c5cf0"];
+
+    transportChart = new Chart(canvas.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Distance (km)",
+            data: distances,
+            backgroundColor: labels.map((_, i) => palette[i % palette.length]),
+            borderRadius: 6,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const m = modes[ctx.dataIndex];
+                return `${m.trip_count} trips · ${App.fmtNumber(m.total_distance_km)} km`;
+              },
+            },
+          },
+        },
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: "km" } },
+        },
+      },
+    });
+  }
+
+  async function loadTopPlacesAndTransport() {
+    document.getElementById("top-places-table").innerHTML = App.skeletonRows(6, 20);
+    try {
+      const [placesRes, modesRes] = await Promise.all([
+        App.apiGet("/api/insights/top-places", { limit: 20 }),
+        App.apiGet("/api/insights/transport-modes"),
+      ]);
+      renderTopPlaces(placesRes.places || []);
+      renderTransportChart(modesRes.modes || []);
+    } catch (err) {
+      App.setPanelStatus("insights-status", `Error: ${err.message}`, true);
+      App.showToast(`Insights failed to load: ${err.message}`, true);
+    }
+  }
+
+  function renderYearReview(data) {
+    const el = document.getElementById("year-review-content");
+    if (!data) {
+      el.innerHTML = '<p class="muted">No data for this year.</p>';
+      return;
+    }
+    const mostActive = data.most_active_month
+      ? `${new Date(data.most_active_month.year, data.most_active_month.month - 1, 1).toLocaleDateString(undefined, {
+          month: "long",
+        })} (${App.fmtNumber(data.most_active_month.trip_count)} trips)`
+      : "—";
+    const cities = data.cities_visited && data.cities_visited.length ? data.cities_visited.length : 0;
+
+    el.innerHTML = `
+      <div class="year-review-summary">
+        <h2>${data.year} in Review</h2>
+        <div class="yrs-sub">${App.fmtNumber(data.total_days_with_activity)} days on the move</div>
+        <div class="yrs-grid">
+          <div class="yrs-item"><div class="yrs-value" id="yrs-distance">0 km</div><div class="yrs-label">Total distance</div></div>
+          <div class="yrs-item"><div class="yrs-value" id="yrs-cities">0</div><div class="yrs-label">Cities visited</div></div>
+          <div class="yrs-item"><div class="yrs-value" id="yrs-places">0</div><div class="yrs-label">Places visited</div></div>
+          <div class="yrs-item"><div class="yrs-value">${App.escapeHtml(mostActive)}</div><div class="yrs-label">Most active month</div></div>
+          <div class="yrs-item"><div class="yrs-value">${App.escapeHtml(data.dominant_transport_mode || "—")}</div><div class="yrs-label">Dominant transport</div></div>
+          <div class="yrs-item"><div class="yrs-value" id="yrs-trips">0</div><div class="yrs-label">Total trips</div></div>
+        </div>
+      </div>`;
+
+    App.countUp(document.getElementById("yrs-distance"), data.total_distance_km || 0, (v) => `${App.fmtNumber(v)} km`);
+    App.countUp(document.getElementById("yrs-cities"), cities, (v) => App.fmtNumber(Math.round(v)));
+    App.countUp(document.getElementById("yrs-places"), data.total_places || 0, (v) => App.fmtNumber(Math.round(v)));
+    App.countUp(document.getElementById("yrs-trips"), data.total_trips || 0, (v) => App.fmtNumber(Math.round(v)));
+  }
+
+  async function loadYearReview(year) {
+    const el = document.getElementById("year-review-content");
+    el.innerHTML = `<div class="skeleton skeleton-tile" style="height:180px;margin-top:14px;"></div>`;
+    try {
+      const data = await App.apiGet(`/api/insights/year-in-review/${year}`);
+      renderYearReview(data);
+    } catch (err) {
+      el.innerHTML = `<p class="muted">Error: ${App.escapeHtml(err.message)}</p>`;
+      App.showToast(`Year in review failed to load: ${err.message}`, true);
+    }
+  }
+
+  function populateYearSelect() {
+    const select = document.getElementById("year-select");
+    let years = [];
+    const timelineMod = window.Tabs.timeline;
+    if (timelineMod && typeof timelineMod.getMonths === "function") {
+      const months = timelineMod.getMonths();
+      years = Array.from(new Set(months.map((m) => m.year))).sort((a, b) => b - a);
+    }
+    if (!years.length) {
+      years = [new Date().getFullYear()];
+    }
+    select.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
+    yearsPopulated = true;
+    return years[0];
+  }
+
+  async function ensureYearsAndLoad() {
+    // Make sure timeline months are available for the year dropdown.
+    try {
+      if (!window.Tabs.timeline.getMonths().length) {
+        await App.apiGet("/api/timeline/months").then((res) => {
+          // Piggyback: timeline.js owns 'months' state, so just derive years locally if needed.
+          window.__insightsMonthsFallback = res.months || [];
+        });
+      }
+    } catch (err) {
+      /* non-fatal */
+    }
+    const select = document.getElementById("year-select");
+    let years = [];
+    const timelineMod = window.Tabs.timeline;
+    const months = (timelineMod && timelineMod.getMonths()) || window.__insightsMonthsFallback || [];
+    if (months.length) {
+      years = Array.from(new Set(months.map((m) => m.year))).sort((a, b) => b - a);
+    } else {
+      years = [new Date().getFullYear()];
+    }
+    select.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
+    yearsPopulated = true;
+    await loadYearReview(years[0]);
+  }
+
+  async function load() {
+    App.setPanelStatus("insights-status", "Loading insights…");
+    await loadTopPlacesAndTransport();
+    App.setPanelStatus("insights-status", "");
+    await ensureYearsAndLoad();
+    loaded = true;
+  }
+
+  function init() {
+    document.getElementById("year-select").addEventListener("change", (e) => {
+      loadYearReview(e.target.value);
+    });
+  }
+
+  function activate() {
+    if (!loaded) load();
+  }
+
+  function refresh() {
+    return load();
+  }
+
+  window.Tabs.insights = { init, activate, refresh };
+})();
+</script>
+
+<script>
+/* boot.js — standalone-only glue: wires the Import buttons, loads any
+ * previously-imported data from IndexedDB, then boots the UI (app.js)
+ * once that data is ready in memory. */
+(function () {
+  "use strict";
+
+  function refreshAllTabs() {
+    ["map", "stats", "timeline", "insights"].forEach((name) => {
+      const mod = window.Tabs[name];
+      if (mod && typeof mod.refresh === "function") {
+        try {
+          mod.refresh();
+        } catch (err) {
+          console.error(`Error refreshing tab ${name}:`, err);
+        }
+      }
+    });
+  }
+  window.__refreshAllTabs = refreshAllTabs;
+
+  async function handleImportFile(file) {
+    App.showToast(`Reading ${file.name}…`);
+    let text;
+    try {
+      text = await file.text();
+    } catch (err) {
+      App.showToast(`Could not read file: ${err.message}`, true);
+      return;
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      App.showToast(`That doesn't look like valid JSON: ${err.message}`, true);
+      return;
+    }
+    text = null; // free memory for large exports as soon as possible
+
+    let result;
+    try {
+      result = await Local.importData(data, { name: file.name, size: file.size, lastModified: file.lastModified });
+    } catch (err) {
+      console.error(err);
+      App.showToast(`Import failed: ${err.message}`, true);
+      return;
+    }
+
+    await App.refreshStatus();
+    refreshAllTabs();
+    Geocoder.resume();
+
+    const skippedNote = result.skipped ? `, ${result.skipped} segment(s) skipped` : "";
+    App.showToast(
+      `Imported ${file.name}: ${result.newVisits} visits, ${result.newTrips} trips merged (${result.totalVisits} visits total)${skippedNote}.`
+    );
+  }
+
+  function wireImportButtons() {
+    const input = document.getElementById("import-file-input");
+    ["import-btn-header", "import-btn-map", "import-btn-empty"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener("click", () => input.click());
+    });
+    input.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      input.value = ""; // allow re-importing the same file again later
+      if (file) handleImportFile(file);
+    });
+  }
+
+  async function boot() {
+    wireImportButtons();
+    try {
+      await Db.open();
+    } catch (err) {
+      console.warn("IndexedDB unavailable — running without persistence for this session:", err);
+    }
+    try {
+      await Local.loadFromDB();
+    } catch (err) {
+      console.warn("Failed to load previously-stored data:", err);
+    }
+    App.boot();
+    Geocoder.resume(); // pick up any places left ungeocoded from a prior session
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+})();
+</script>
+
+</body>
+</html>
