@@ -17,29 +17,44 @@
     return { start, end };
   }
 
-  let tileLayer = null;
+  let tileLayers = [];
 
   function isDarkMode() {
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
 
-  // Raw tile.openstreetmap.org rejects most embedded/distributed apps (no
-  // Referer from file:// pages reads as policy abuse) — CARTO's free basemaps
-  // are the standard drop-in replacement for this exact use case and don't
-  // require an API key or referrer.
-  function tileUrl(dark) {
-    return dark
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-  }
+  // Raw tile.openstreetmap.org and CARTO's free basemaps both now reject
+  // this app (OSM blocks embedded/file:// traffic under its tile usage
+  // policy; CARTO's light_all/dark_all started requiring an API key). Esri's
+  // public ArcGIS Online basemap tiles are still free with no key and no
+  // referrer checks, and have solid India road/place coverage.
+  const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+  const ESRI_ATTRIBUTION = "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors";
 
   function applyTileLayer() {
     if (!map) return;
-    if (tileLayer) map.removeLayer(tileLayer);
-    tileLayer = L.tileLayer(tileUrl(isDarkMode()), {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-    }).addTo(map);
+    tileLayers.forEach((layer) => map.removeLayer(layer));
+    tileLayers = [];
+    if (isDarkMode()) {
+      tileLayers.push(
+        L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
+          maxZoom: 16,
+          attribution: ESRI_ATTRIBUTION,
+        }).addTo(map)
+      );
+      tileLayers.push(
+        L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, {
+          maxZoom: 16,
+        }).addTo(map)
+      );
+    } else {
+      tileLayers.push(
+        L.tileLayer(`${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`, {
+          maxZoom: 19,
+          attribution: ESRI_ATTRIBUTION,
+        }).addTo(map)
+      );
+    }
   }
 
   function ensureMap() {
