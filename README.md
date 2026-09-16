@@ -36,7 +36,7 @@ Press `Ctrl+C` in the terminal where it's running.
 - **"Address already in use" / port 8000 taken**: run with a different port: `PORT=8001 python run.py` (on Windows: `set PORT=8001 && python run.py`).
 - **"python: command not found"**: try `python3 run.py` instead of `python run.py`.
 - **Map/dashboard is empty**: make sure you've dropped a `.json` export into `data/raw/`, then click **Refresh Data**.
-- **Map tiles or icons don't load**: this app loads its map (Leaflet/OpenStreetMap), charts (Chart.js), and icons (Phosphor) from free CDNs, so it needs normal internet access even though your data stays local.
+- **Map tiles or icons don't load**: this app loads its map (MapLibre GL JS/OpenFreeMap), charts (Chart.js), and icons (Phosphor) from free CDNs, so it needs normal internet access even though your data stays local.
 
 ## Privacy
 
