@@ -926,8 +926,12 @@ table.data-table tbody tr:hover { background: var(--surface-alt); }
 window.Db = (function () {
   "use strict";
   const DB_NAME = "timeline-dashboard";
-  const DB_VERSION = 1;
-  const STORES = ["visits", "trips", "paths", "geocode", "files", "meta"];
+  // v2 added the "geocodeAssignments" store (distinct place -> its geocoding
+  // cluster representative). The upgrade is purely additive: every v1 store
+  // keeps its data, so an existing user's cached place names survive.
+  const DB_VERSION = 2;
+  const STORES = ["visits", "trips", "paths", "geocode", "geocodeAssignments", "files", "meta"];
+  const KEY_PATH_BY_STORE = { meta: "key", geocode: "key", geocodeAssignments: "key", files: "key" };
   let dbPromise = null;
   let available = true;
 
@@ -949,10 +953,14 @@ window.Db = (function () {
         const db = e.target.result;
         STORES.forEach((name) => {
           if (!db.objectStoreNames.contains(name)) {
-            const keyPath = name === "meta" ? "key" : name === "geocode" ? "key" : name === "files" ? "key" : "id";
-            db.createObjectStore(name, { keyPath });
+            db.createObjectStore(name, { keyPath: KEY_PATH_BY_STORE[name] || "id" });
           }
         });
+      };
+      // Another tab still holding the old version blocks the v1 -> v2 upgrade.
+      // Warn rather than hang silently; the promise settles once that tab closes.
+      req.onblocked = () => {
+        console.warn("IndexedDB upgrade blocked — close other tabs of this dashboard to finish upgrading.");
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
@@ -1148,7 +1156,15 @@ window.Local = (function () {
   let tripsById = new Map();
   let pathsById = new Map();
   let filesByKey = new Map();
-  let geocodeCache = new Map(); // "lat,lng" (4dp) -> place name
+  let geocodeCache = new Map(); // repKey -> place name (see geocodeKey/roundKey below)
+  // roundKey (4dp, one real distinct place) -> repKey of the cluster it belongs
+  // to. Persisted in the "geocodeAssignments" store so a clustering decision is
+  // made exactly once per distinct place, ever, and survives reloads/reimports.
+  let assignments = new Map();
+  // Spatial index over cluster representatives, bucketed by latitude band so a
+  // radius query touches a handful of candidates instead of every rep.
+  // Map<latCell:int, Array<{key, lat, lng}>>.
+  let repIndex = new Map();
   let visits = [], trips = [], paths = [], files = [];
   let home = null, work = null;
   // Two independent counters, deliberately not one. `dataVersion` moves only
@@ -1172,16 +1188,146 @@ window.Local = (function () {
     return `${lat.toFixed(4)},${lng.toFixed(4)}`;
   }
 
-  // Coarser (~1.1km) key used only for the geocoding cache/fetch-dedup, so
-  // nearby visits within the same town share one Nominatim lookup instead of
-  // each needing their own — never used for "distinct places" counting,
-  // which must stay on the finer roundKey() above.
+  // Coarse (~1.1km) grid key. This was the geocode cache key in the previous
+  // version; it is now kept for one purpose only — recognising cache entries
+  // written by that version so an upgrading user keeps every resolved name and
+  // re-fetches nothing. Never used for "distinct places" counting, which must
+  // stay on the finer roundKey() above.
   function geocodeKey(lat, lng) {
     return `${lat.toFixed(2)},${lng.toFixed(2)}`;
   }
 
+  // ---------- geocode clustering ----------
+  //
+  // Grid rounding has a boundary artifact: two points 10m apart that straddle a
+  // grid line land in different cells and cost two Nominatim lookups. So instead
+  // of rounding, distinct places are clustered by real distance against already
+  // established cluster *representatives* (greedy "leader" clustering).
+  //
+  // That is not a stateless function — which representative a place gets depends
+  // on which ones existed when it was first seen — so the decision is persisted
+  // per distinct place (see `assignments`) and never recomputed once made.
+  //
+  // A representative is identified by its `repKey`, which is always a
+  // fixed-precision "lat,lng" string and therefore parses straight back to the
+  // representative's coordinates with no side table:
+  //   - new representatives use roundKey()  -> 4dp, exact to ~11m, and a
+  //     representative's own assignment record satisfies key === repKey.
+  //   - keys written by the previous version are 2dp geocodeKey() strings; they
+  //     stay valid representatives forever. The two formats cannot collide
+  //     ("21.1200,72.8300" is never "21.12,72.83").
+  const CLUSTER_RADIUS_M = 1100; // ~ the old 2dp grid cell, in real distance
+  const LAT_CELL_DEG = 0.01; // 0.01 deg lat ~ 1113m >= CLUSTER_RADIUS_M
+  const EARTH_RADIUS_M = 6371000;
+  const DEG_TO_RAD = Math.PI / 180;
+  const RADIUS_DEG_LAT = CLUSTER_RADIUS_M / 111320;
+
+  function latCellOf(lat) {
+    return Math.floor(lat / LAT_CELL_DEG);
+  }
+
+  function haversineM(lat1, lng1, lat2, lng2) {
+    const p1 = lat1 * DEG_TO_RAD;
+    const p2 = lat2 * DEG_TO_RAD;
+    const dp = (lat2 - lat1) * DEG_TO_RAD;
+    const dl = (lng2 - lng1) * DEG_TO_RAD;
+    const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
+  // "lat,lng" (any fixed precision) -> [lat, lng], or null if unparseable.
+  function parseKey(key) {
+    const i = String(key).indexOf(",");
+    if (i < 0) return null;
+    const lat = parseFloat(key.slice(0, i));
+    const lng = parseFloat(key.slice(i + 1));
+    if (!isFinite(lat) || !isFinite(lng)) return null;
+    return [lat, lng];
+  }
+
+  function addRepresentative(key, lat, lng) {
+    const cell = latCellOf(lat);
+    let bucket = repIndex.get(cell);
+    if (!bucket) {
+      bucket = [];
+      repIndex.set(cell, bucket);
+    }
+    bucket.push({ key, lat, lng });
+  }
+
+  /** Rebuild the representative index from whatever is already known. Every key
+   *  in the name cache is a representative (that is what "has a resolved name"
+   *  means), as is every repKey referenced by a stored assignment. */
+  function rebuildRepIndex() {
+    repIndex = new Map();
+    const seen = new Set();
+    const consider = (key) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      const c = parseKey(key);
+      if (c) addRepresentative(key, c[0], c[1]);
+    };
+    geocodeCache.forEach((_name, key) => consider(key));
+    assignments.forEach((repKey) => consider(repKey));
+  }
+
+  /** Nearest-enough established representative, or null. Exact: anything within
+   *  CLUSTER_RADIUS_M has |dLat| <= 0.0099deg, so the three latitude bands
+   *  around the query always contain it. */
+  function findNearbyRepresentative(lat, lng) {
+    const cell = latCellOf(lat);
+    const lngScale = Math.cos(lat * DEG_TO_RAD);
+    for (let c = cell - 1; c <= cell + 1; c++) {
+      const bucket = repIndex.get(c);
+      if (!bucket) continue;
+      for (let i = 0; i < bucket.length; i++) {
+        const rep = bucket[i];
+        // Two cheap rejections before paying for the trigonometry.
+        if (Math.abs(lat - rep.lat) > RADIUS_DEG_LAT) continue;
+        if (Math.abs(lng - rep.lng) * lngScale > RADIUS_DEG_LAT) continue;
+        if (haversineM(lat, lng, rep.lat, rep.lng) <= CLUSTER_RADIUS_M) return rep.key;
+      }
+    }
+    return null;
+  }
+
+  /** The repKey for a distinct place, deciding (and recording) it if this is the
+   *  first time the place has been seen. `pending` collects newly-made decisions
+   *  so the caller can persist them in one transaction. */
+  function resolveAssignment(rk, lat, lng, pending) {
+    // 1. Already decided — never re-decide. This is what makes names stable
+    //    across reloads even though visit iteration order is not.
+    const existing = assignments.get(rk);
+    if (existing !== undefined) return existing;
+
+    // 2. Fast path for caches written by the previous (grid-only) version: this
+    //    place's own grid cell already has a resolved name, so reuse it directly
+    //    instead of scanning, and let it stand as its own representative.
+    const gk = geocodeKey(lat, lng);
+    let repKey = geocodeCache.has(gk) ? gk : null;
+
+    // 3. Otherwise look for an established representative within the radius.
+    if (repKey === null) repKey = findNearbyRepresentative(lat, lng);
+
+    // 4. Otherwise this place becomes a new representative of its own.
+    if (repKey === null) {
+      repKey = rk;
+      addRepresentative(repKey, lat, lng);
+    }
+
+    assignments.set(rk, repKey);
+    if (pending) pending.push({ key: rk, repKey });
+    return repKey;
+  }
+
+  /** Read-only: never creates a cluster assignment, so rendering a tab can
+   *  never mutate clustering state. Unassigned places fall back to the old grid
+   *  key so a previous version's cached names show up on the very first paint,
+   *  before any clustering has run. */
   function getPlaceName(lat, lng) {
-    return geocodeCache.get(geocodeKey(lat, lng)) || "Unknown place";
+    const repKey = assignments.get(roundKey(lat, lng));
+    const name = repKey !== undefined ? geocodeCache.get(repKey) : geocodeCache.get(geocodeKey(lat, lng));
+    return name || "Unknown place";
   }
 
   function dateOf(iso) {
@@ -1196,9 +1342,10 @@ window.Local = (function () {
   }
 
   async function loadFromDB() {
-    const [vRows, tRows, pRows, fRows, mRows, gRows] = await Promise.all([
+    const [vRows, tRows, pRows, fRows, mRows, gRows, aRows] = await Promise.all([
       Db.getAll("visits"), Db.getAll("trips"), Db.getAll("paths"),
       Db.getAll("files"), Db.getAll("meta"), Db.getAll("geocode"),
+      Db.getAll("geocodeAssignments"),
     ]);
     vRows.forEach((v) => visitsById.set(v.id, v));
     tRows.forEach((t) => tripsById.set(t.id, t));
@@ -1209,6 +1356,12 @@ window.Local = (function () {
       if (m.key === "work") work = m.value;
     });
     gRows.forEach((g) => geocodeCache.set(g.key, g.name));
+    aRows.forEach((a) => {
+      if (a && a.key && a.repKey) assignments.set(a.key, a.repKey);
+    });
+    // Restore the representative set before any clustering decision is made, so
+    // places resolved in earlier sessions are reused instead of re-fetched.
+    rebuildRepIndex();
     rebuildArrays();
   }
 
@@ -1528,30 +1681,49 @@ window.Local = (function () {
   }
 
   function geocodeStatus() {
-    // total_places stays on the finer roundKey() (accurate distinct-place
-    // count); "geocoded" checks each such place's coarser geocodeKey(), since
-    // that's the granularity the cache is actually keyed at.
+    // total_places stays on the finer roundKey() — an accurate distinct-place
+    // count, deliberately unchanged by clustering. "geocoded" asks whether each
+    // such place's cluster representative has a resolved name yet.
     const distinct = new Set();
     let geocoded = 0;
     visits.forEach((v) => {
       const rk = roundKey(v.lat, v.lng);
       if (distinct.has(rk)) return;
       distinct.add(rk);
-      if (geocodeCache.has(geocodeKey(v.lat, v.lng))) geocoded++;
+      const repKey = assignments.get(rk);
+      // Read-only, like getPlaceName: a place with no assignment yet falls back
+      // to the old grid key so a previous version's cache still counts.
+      const has = repKey !== undefined
+        ? geocodeCache.has(repKey)
+        : geocodeCache.has(geocodeKey(v.lat, v.lng));
+      if (has) geocoded++;
     });
     return { online_enabled: true, total_places: distinct.size, geocoded, pending: Math.max(distinct.size - geocoded, 0) };
   }
 
   // ---------- geocoding support (used by the Geocoder module) ----------
+  /** One entry per cluster representative still lacking a name, with the
+   *  representative's own coordinates (parsed back out of its key) so Nominatim
+   *  is queried at the representative, not at some arbitrary cluster member. */
   function getUngeocodedVisitCoords() {
-    const seen = new Set();
+    const seenPlaces = new Set();
+    const queuedReps = new Set();
+    const pending = [];
     const coords = [];
     visits.forEach((v) => {
-      const key = geocodeKey(v.lat, v.lng);
-      if (geocodeCache.has(key) || seen.has(key)) return;
-      seen.add(key);
-      coords.push({ key, lat: v.lat, lng: v.lng });
+      const rk = roundKey(v.lat, v.lng);
+      if (seenPlaces.has(rk)) return;
+      seenPlaces.add(rk);
+      const repKey = resolveAssignment(rk, v.lat, v.lng, pending);
+      if (geocodeCache.has(repKey) || queuedReps.has(repKey)) return;
+      queuedReps.add(repKey);
+      const c = parseKey(repKey);
+      if (c) coords.push({ key: repKey, lat: c[0], lng: c[1] });
     });
+    // Persist every decision made just now, in one transaction. Assignments are
+    // written before their names resolve on purpose: if the page closes
+    // mid-run, the next session reuses these decisions instead of re-clustering.
+    if (pending.length) Db.putAll("geocodeAssignments", pending);
     return coords;
   }
 
@@ -1561,6 +1733,46 @@ window.Local = (function () {
     namesVersion++;
   }
 
+  /** Inspection helper for the clustering invariants (used by the test harness;
+   *  never called during normal rendering). Reports how far the furthest
+   *  cluster member sits from its representative — greedy leader clustering
+   *  bounds this by the radius, or by radius + half a grid cell where a legacy
+   *  2dp key is the representative. */
+  function clusterDiagnostics() {
+    const repMembers = new Map();
+    let maxMemberDistanceM = 0;
+    let worst = null;
+    let unparseable = 0;
+    assignments.forEach((repKey, rk) => {
+      repMembers.set(repKey, (repMembers.get(repKey) || 0) + 1);
+      const p = parseKey(rk);
+      const r = parseKey(repKey);
+      if (!p || !r) {
+        unparseable++;
+        return;
+      }
+      const d = haversineM(p[0], p[1], r[0], r[1]);
+      if (d > maxMemberDistanceM) {
+        maxMemberDistanceM = d;
+        worst = { place: rk, repKey, distanceM: d };
+      }
+    });
+    let largestCluster = 0;
+    repMembers.forEach((n) => { if (n > largestCluster) largestCluster = n; });
+    return {
+      radiusM: CLUSTER_RADIUS_M,
+      assignedPlaces: assignments.size,
+      representatives: repMembers.size,
+      namedRepresentatives: geocodeCache.size,
+      indexedRepresentatives: Array.from(repIndex.values()).reduce((s, b) => s + b.length, 0),
+      latBands: repIndex.size,
+      largestCluster,
+      maxMemberDistanceM,
+      worst,
+      unparseable,
+    };
+  }
+
   return {
     parseSegments, parseFrequentPlaces, // exposed for potential reuse/testing
     loadFromDB, importData,
@@ -1568,6 +1780,7 @@ window.Local = (function () {
     timelineMonths, timelineMonthDays, timelineDayEvents,
     topPlaces, transportModes, yearInReview, geocodeStatus,
     getUngeocodedVisitCoords, setGeocodedName, getPlaceName,
+    clusterDiagnostics,
     getDataVersion: () => dataVersion,
     getNamesVersion: () => namesVersion,
   };
@@ -1617,9 +1830,10 @@ window.LocalRouter = (function () {
 
 <script>
 /* geocode.js — on-demand Nominatim (OpenStreetMap) reverse geocoding,
- * rate-limited to ~1 req/sec, low priority, cached forever in IndexedDB
- * by rounded lat/lng. Never blocks the UI; updates a small progress pill
- * and periodically refreshes the visible tab as names resolve. */
+ * rate-limited to ~1 req/sec, low priority, cached forever in IndexedDB.
+ * One lookup per geographic cluster representative (see Local's clustering
+ * notes), not one per distinct place. Never blocks the UI; updates a small
+ * progress pill and periodically refreshes the visible tab as names resolve. */
 window.Geocoder = (function () {
   "use strict";
   const MIN_DELAY_MS = 1100;
